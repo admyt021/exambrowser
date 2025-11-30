@@ -95,7 +95,7 @@
         .modern-select { appearance: none; -webkit-appearance: none; cursor: pointer; }
 
         /* Token Monitor Circular Progress */
-        .progress-ring__circle { transition: stroke-dashoffset 0.35s; transform: rotate(-90deg); transform-origin: 50% 50%; }
+        .progress-ring__circle { transition: stroke-dashoffset 1s linear; transform: rotate(-90deg); transform-origin: 50% 50%; }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 h-screen overflow-hidden">
@@ -248,31 +248,33 @@
                     const d = s.data();
                     const tEl = $('adm-token');
                     if(tEl) {
-                        tEl.innerHTML = d.code.split('').map(c => `<span class="inline-block bg-gray-100 rounded-lg px-2 py-1 mx-1 border border-gray-300 shadow-sm">${c}</span>`).join('');
+                        tEl.innerText = d.code;
                     }
                     
-                    // Progress Ring Logic
+                    // Update Circular Timer
                     const circle = document.querySelector('.progress-ring__circle');
                     const radius = circle ? circle.r.baseVal.value : 0;
                     const circumference = radius * 2 * Math.PI;
+                    
                     if(circle) {
-                        circle.style.strokeDasharray = `${circumference} ${circumference}`;
-                        circle.style.strokeDashoffset = circumference;
+                         circle.style.strokeDasharray = `${circumference} ${circumference}`;
                     }
 
                     if(state.countdownInterval) clearInterval(state.countdownInterval);
-                    let timeLeft = 300; // 5 minutes
+                    let timeLeft = 300; 
                     const totalTime = 300;
-                    
+
                     state.countdownInterval = setInterval(() => {
                         timeLeft--;
-                        const offset = circumference - (timeLeft / totalTime) * circumference;
-                        if(circle) circle.style.strokeDashoffset = offset;
-                        
                         let m=Math.floor(timeLeft/60), s=timeLeft%60;
                         const cEl = $('token-countdown');
                         if(cEl) cEl.innerText = `${m}:${s<10?'0'+s:s}`;
                         
+                        if(circle) {
+                             const offset = circumference - (timeLeft / totalTime) * circumference;
+                             circle.style.strokeDashoffset = offset;
+                        }
+
                         if(timeLeft <= 0) timeLeft = 300;
                     }, 1000);
                 }
@@ -556,7 +558,41 @@
                 setTimeout(() => window.renderQList(), 0);
             } else if (page === 'results') window.loadResults(container);
             else if (page === 'token') {
-                container.innerHTML = `<div class="flex items-center justify-center h-full"><div class="bg-white p-12 rounded-3xl shadow-xl text-center border relative overflow-hidden w-full max-w-lg"><h3 class="text-gray-400 font-bold uppercase tracking-[0.3em] mb-8 text-sm">TOKEN UJIAN AKTIF</h3><div class="text-8xl font-black text-slate-800 font-mono tracking-tighter mb-8" id="adm-token">...</div><div class="flex items-center justify-center gap-4 text-gray-500 font-mono bg-gray-50 p-4 rounded-xl border border-gray-100"><span class="text-xs font-bold uppercase tracking-wide text-gray-400">Refresh Dalam</span><div id="token-countdown" class="text-2xl font-bold text-blue-600">05:00</div></div></div></div>`;
+                container.innerHTML = `
+                    <div class="flex items-center justify-center h-full relative overflow-hidden">
+                         <div class="text-center z-10">
+                             <div class="bg-white p-10 rounded-3xl shadow-2xl w-full max-w-md border border-gray-100 relative overflow-hidden">
+                                 <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-500 to-purple-600"></div>
+                                 <h3 class="text-gray-400 font-bold uppercase tracking-[0.3em] mb-4 text-sm">TOKEN UJIAN AKTIF</h3>
+                                 
+                                 <!-- Animated Token Display -->
+                                 <div class="text-7xl font-black text-slate-800 font-mono tracking-tighter mb-8 relative group cursor-default" id="adm-token">
+                                     LOADING
+                                     <div class="absolute -inset-4 bg-blue-50 rounded-full blur-2xl opacity-0 group-hover:opacity-50 transition duration-500"></div>
+                                 </div>
+                                 
+                                 <!-- Circular Timer -->
+                                 <div class="flex justify-center items-center gap-4">
+                                     <div class="relative w-16 h-16">
+                                         <svg class="w-full h-full transform -rotate-90">
+                                             <circle cx="32" cy="32" r="28" stroke="#e5e7eb" stroke-width="4" fill="none"/>
+                                             <circle class="progress-ring__circle" cx="32" cy="32" r="28" stroke="#2563eb" stroke-width="4" fill="none" stroke-dasharray="176" stroke-dashoffset="176"/>
+                                         </svg>
+                                         <div class="absolute inset-0 flex items-center justify-center font-bold text-xs text-gray-600" id="token-countdown">05:00</div>
+                                     </div>
+                                     <div class="text-left text-xs text-gray-400 leading-tight">
+                                         <p>Token berubah otomatis<br>setiap 5 menit.</p>
+                                     </div>
+                                 </div>
+                             </div>
+                         </div>
+                         <!-- Background Deco -->
+                         <div class="absolute inset-0 z-0 opacity-50 pointer-events-none">
+                             <div class="absolute top-10 left-10 w-32 h-32 bg-blue-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob"></div>
+                             <div class="absolute top-10 right-10 w-32 h-32 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-2000"></div>
+                             <div class="absolute -bottom-8 left-20 w-32 h-32 bg-pink-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-4000"></div>
+                         </div>
+                    </div>`;
                 startTokenListener();
             }
         };
@@ -713,19 +749,31 @@
         // Shortened logic helpers remain same as before...
         window.handlePasteOptions = (i,t)=>{ const l=t.split(/\n/).map(x=>x.trim()).filter(x=>x); if(l.length){ while(state.editorQuestions[i].options.length<l.length&&state.editorQuestions[i].options.length<5) state.editorQuestions[i].options.push(''); l.slice(0,5).forEach((x,k)=>state.editorQuestions[i].options[k]=x.replace(/^[A-Ea-e1-5][\.\)]\s*/,'')); renderQList(); }};
         window.handleEssayInput = (v)=>{ state.answers[state.currentQuestionIndex]=v; window.updateNavGrid(); };
+        
+        // --- UPDATED: LOGIN POPUP MODERN ---
         window.loginSiswa = async ()=>{ 
             if(!$('s-name').value || !$('s-class').value) {
                 return Swal.fire({
-                    icon: 'error',
-                    title: 'Oops...',
-                    text: 'Nama dan Kelas wajib diisi!',
-                    backdrop: `rgba(0,0,123,0.4)`
+                    html: `
+                        <div class="text-center">
+                            <div class="mb-4 text-yellow-500 animate-bounce">
+                                <i class="fas fa-exclamation-circle text-6xl"></i>
+                            </div>
+                            <h3 class="text-xl font-bold text-gray-800 mb-2">Data Belum Lengkap</h3>
+                            <p class="text-gray-500 text-sm">Mohon isi <b>Nama Lengkap</b> dan <b>Kelas</b> sebelum melanjutkan.</p>
+                        </div>
+                    `,
+                    showConfirmButton: true,
+                    confirmButtonText: 'OK, Saya Mengerti',
+                    confirmButtonColor: '#f59e0b',
+                    customClass: { popup: 'rounded-2xl p-6 shadow-2xl' }
                 });
             }
             await signInAnonymously(auth); 
             state.user={name:$('s-name').value,class:$('s-class').value}; 
             renderTokenPage(); 
         };
+
         window.checkToken = async ()=>{ const t=await getDoc(doc(db,"system","token")); if($('token-in').value.toUpperCase()===(t.exists()?t.data().code:"ABCDE")){ const q=query(collection(db,"exams"),where("level","==",CLASS_MAPPING[state.user.class]),where("isActive","==",true)); const s=await getDocs(q); if(s.empty) return Swal.fire('Info','Tidak ada ujian','info'); state.examData=s.docs[0].data(); state.isPreview=false; state.cheatCount=0; state.answers={}; state.view = 'exam'; state.startTime = new Date(); startTimer(state.examData.timeLimit*60); renderExamPage(); } else Swal.fire('Error','Token Salah','error'); };
         window.toggleAdminNav = ()=>{ $('admin-drawer').classList.toggle('open'); $('drawer-overlay').classList.toggle('show'); };
         window.toggleStudentNav = ()=>{ $('student-drawer').classList.toggle('open'); $('drawer-overlay').classList.toggle('show'); };
