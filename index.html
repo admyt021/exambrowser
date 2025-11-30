@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ExamBrowser AI - Pro System</title>
+    
+    <!-- FAVICON -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+    <!-- PDF.js & Mammoth.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .no-select { user-select: none; -webkit-user-select: none; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        
+        /* Exam Navigation */
+        .question-nav-btn {
+            width: 40px; height: 40px; 
+            border: 1px solid #cbd5e1; 
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; border-radius: 8px; font-weight: bold;
+            transition: all 0.2s;
+            background-color: white;
+            color: #334155;
+        }
+        .question-nav-btn:hover { transform: scale(1.05); border-color: #3b82f6; }
+        .question-nav-btn.active { background-color: #2563eb; color: white; border-color: #2563eb; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.5); z-index: 10; }
+        .question-nav-btn.answered { background-color: #10b981; color: white; border-color: #10b981; }
+        .question-nav-btn.doubt { background-color: #f59e0b; color: white; border-color: #f59e0b; }
+        
+        /* Drawers */
+        .mobile-drawer {
+            position: fixed; top: 0; bottom: 0; width: 280px;
+            background: white; z-index: 50; transition: transform 0.3s ease-in-out;
+            box-shadow: 0 0 15px rgba(0,0,0,0.1);
+        }
+        .admin-drawer { left: 0; transform: translateX(-100%); background: #0f172a; color: white; }
+        .admin-drawer.open { transform: translateX(0); }
+        .student-drawer { right: 0; transform: translateX(100%); }
+        .student-drawer.open { transform: translateX(0); }
+        .drawer-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 40;
+            opacity: 0; pointer-events: none; transition: opacity 0.3s;
+        }
+        .drawer-overlay.show { opacity: 1; pointer-events: auto; }
+
+        /* UI Components */
+        .stat-card { background: #fff; padding: 15px; border-radius: 12px; border: 1px solid #f1f5f9; box-shadow: 0 2px 4px rgba(0,0,0,0.05); transition: transform 0.2s; }
+        .stat-card:hover { transform: translateY(-2px); }
+        .option-card.selected { background-color: #dbeafe; border-color: #3b82f6; ring: 1px solid #3b82f6; }
+        .option-card.selected .opt-char { background-color: #2563eb; color: white; }
+
+        /* Matching */
+        .match-item { position: relative; cursor: pointer; transition: all 0.2s; }
+        .match-item:hover { background-color: #f1f5f9; }
+        .match-item.selected { border-color: #3b82f6; background-color: #eff6ff; }
+        .match-point { width: 12px; height: 12px; background: #94a3b8; border-radius: 50%; position: absolute; top: 50%; transform: translateY(-50%); }
+        .match-point.active { background: #2563eb; box-shadow: 0 0 0 4px rgba(37,99,235,0.2); }
+        .left-item .match-point { right: -6px; }
+        .right-item .match-point { left: -6px; }
+        svg line { stroke: #2563eb; stroke-width: 2; stroke-linecap: round; pointer-events: auto; cursor: pointer; }
+        svg line:hover { stroke: #ef4444; stroke-width: 4; }
+        
+        /* Editor Mobile Tabs */
+        .editor-tab-btn { border-bottom: 3px solid transparent; color: #64748b; transition: all 0.2s; }
+        .editor-tab-btn.active { border-color: #2563eb; color: #2563eb; background-color: #eff6ff; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 h-screen overflow-hidden">
+
+    <div id="app" class="h-full w-full relative"></div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc, updateDoc, onSnapshot, query, where, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyD4wcRZjMQTO3NQjwHPuHGv0E5_Qx8Razk",
+            authDomain: "exambro-bb56d.firebaseapp.com",
+            projectId: "exambro-bb56d",
+            storageBucket: "exambro-bb56d.firebasestorage.app",
+            messagingSenderId: "979885745832",
+            appId: "1:979885745832:web:72d46f3b224c19b102449d",
+            measurementId: "G-5FMPPDKF2Q"
+        };
+        
+        const GEMINI_API_KEY = "AIzaSyCa5s5Iz1JPUfComcSujXdGdvKEFIB4s1s";
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        const CLASS_MAPPING = {
+            "X.2": "Kelas X", "X.3": "Kelas X", "X.4": "Kelas X",
+            "XI.1": "Kelas XI", "XI.2": "Kelas XI", "XI.3": "Kelas XI", "XI.4": "Kelas XI",
+            "XII MIPA 1": "Kelas XII", "XII MIPA 2": "Kelas XII", "XII IPS 1": "Kelas XII", "XII IPS 2": "Kelas XII"
+        };
+        
+        const ADMIN_LEVELS = ["Kelas X", "Kelas XI", "Kelas XII"];
+
+        let state = {
+            view: 'login',
+            user: null,
+            examData: null,
+            answers: {}, 
+            doubts: {}, 
+            token: "",
+            timerInterval: null,
+            countdownInterval: null,
+            clockInterval: null,
+            currentQuestionIndex: 0,
+            editorQuestions: [],
+            currentExamId: null,
+            isPreview: false,
+            resultFilter: 'ALL',
+            showStudentNav: false,
+            showAdminNav: false,
+            matchSelection: null,
+            cheatCount: 0,
+            isAlertOpen: false,
+            startTime: null 
+        };
+
+        const $ = (id) => document.getElementById(id);
+
+        // --- ANTI-CHEAT ---
+        window.handleCheat = () => {
+            if (state.view === 'exam' && !state.isPreview) {
+                if(state.isAlertOpen) return;
+                state.cheatCount = (state.cheatCount || 0) + 1;
+                state.isAlertOpen = true;
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'PELANGGARAN TERDETEKSI!',
+                    html: `
+                        <div class="text-center">
+                            <div class="text-6xl mb-4">🚫</div>
+                            <h3 class="text-red-600 font-bold text-xl mb-2">Dilarang Keluar Aplikasi!</h3>
+                            <p class="text-gray-700 mb-4">Aktivitas Anda telah direkam sistem.</p>
+                            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded relative">
+                                <strong class="font-bold">Total Pelanggaran: ${state.cheatCount}</strong>
+                            </div>
+                        </div>
+                    `,
+                    confirmButtonText: 'KEMBALI MENGERJAKAN',
+                    confirmButtonColor: '#d33',
+                    allowOutsideClick: false,
+                    allowEscapeKey: false,
+                    backdrop: `rgba(150,0,0,0.95)`,
+                    timer: 5000,
+                    timerProgressBar: true,
+                    didOpen: () => {
+                        Swal.showLoading();
+                        const b = Swal.getConfirmButton();
+                        b.disabled = true;
+                        setTimeout(() => { Swal.hideLoading(); b.disabled = false; }, 2000);
+                    }
+                }).then(() => {
+                    state.isAlertOpen = false;
+                    try { document.documentElement.requestFullscreen().catch(e=>{}); } catch(e){}
+                });
+            }
+        };
+        window.addEventListener('blur', window.handleCheat);
+        document.addEventListener('visibilitychange', () => { if(document.hidden) window.handleCheat(); });
+
+        // --- UTILS ---
+        const generateClassOptions = () => {
+            const groups = { "Kelas X": [], "Kelas XI": [], "Kelas XII": [] };
+            Object.keys(CLASS_MAPPING).forEach(k => { const lvl = CLASS_MAPPING[k]; if(groups[lvl]) groups[lvl].push(k); });
+            return Object.keys(groups).map(lvl => `<optgroup label="${lvl}">${groups[lvl].map(c => `<option value="${c}">${c}</option>`).join('')}</optgroup>`).join('');
+        };
+
+        async function readPdfText(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            let fullText = "";
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const txt = await page.getTextContent();
+                fullText += txt.items.map(item => item.str).join(" ") + "\n";
+            }
+            return fullText; 
+        }
+        async function readDocxHtml(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const result = await mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
+            return result.value; 
+        }
+        const fileToBase64 = (file) => new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = error => reject(error);
+        });
+
+        async function generateQuestionsAI(text, count, level) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+            const prompt = `Buatlah TEPAT ${count} soal ujian ${level}. Output JSON Array. Struktur: { "type": "PG", "text": "...", "options": ["A","B","C","D","E"], "key": "...", "points": 10, "referenceText": "..." } Materi: ${text.substring(0, 45000)}`;
+            try {
+                const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
+                const data = await resp.json();
+                let txt = data.candidates[0].content.parts[0].text.replace(/```json/g, '').replace(/```/g, '').trim();
+                const json = JSON.parse(txt);
+                json.forEach(q => { if(q.type === 'PG' && q.options.length < 5) while(q.options.length < 5) q.options.push("Opsi Tambahan"); });
+                return json;
+            } catch (error) { throw new Error("Gagal generate soal."); }
+        }
+
+        function startTokenListener() {
+            onSnapshot(doc(db,"system","token"), (s) => {
+                if(s.exists()) {
+                    const d = s.data();
+                    const tEl = $('adm-token');
+                    if(tEl) tEl.innerText = d.code;
+                    if(state.countdownInterval) clearInterval(state.countdownInterval);
+                    let timeLeft = 300; 
+                    state.countdownInterval = setInterval(() => {
+                        let m=Math.floor(timeLeft/60), s=timeLeft%60;
+                        const cEl = $('token-countdown');
+                        if(cEl) cEl.innerText = `${m}:${s<10?'0'+s:s}`;
+                        if(--timeLeft < 0) timeLeft = 300;
+                    }, 1000);
+                }
+            });
+            setInterval(async () => {
+                if(state.user?.role==='admin') {
+                    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+                    let c = ""; for(let i=0; i<5; i++) c += chars.charAt(Math.floor(Math.random() * chars.length));
+                    await setDoc(doc(db,"system","token"), {code:c, updatedAt:serverTimestamp()});
+                }
+            }, 300000);
+        }
+
+        // --- EXAM LIST RENDERER ---
+        window.renderExamList = async (container) => {
+            container.innerHTML = '<div class="text-center p-10">Loading...</div>';
+            const q = query(collection(db, "exams"));
+            const snaps = await getDocs(q);
+            const exams = snaps.docs.map(d => ({id:d.id, ...d.data()}));
+            container.innerHTML = `<div class="bg-white rounded-xl shadow-sm border p-6"><div class="flex justify-between items-center mb-6"><h2 class="text-xl font-bold">Daftar Ujian</h2><button onclick="window.loadAdminPage('editor')" class="bg-blue-600 text-white px-4 py-2 rounded font-bold text-sm">+ Buat Baru</button></div><table class="w-full text-left"><thead><tr class="border-b"><th class="p-4">Mapel</th><th class="p-4">Status</th><th class="p-4 text-right">Aksi</th></tr></thead><tbody>${exams.map(e => `<tr class="border-b"><td class="p-4 font-bold">${e.subject}<br><span class="text-xs text-gray-500">${e.level}</span></td><td class="p-4"><button onclick="window.toggleExamStatus('${e.id}', ${e.isActive})" class="${e.isActive?'bg-green-100 text-green-700':'bg-red-100 text-red-700'} px-3 py-1 rounded text-xs font-bold">${e.isActive?'AKTIF':'NONAKTIF'}</button></td><td class="p-4 text-right"><button onclick='window.editExam(${JSON.stringify(e).replace(/'/g,"&#39;")})' class="text-blue-500 mr-2"><i class="fas fa-edit"></i></button><button onclick="window.deleteExam('${e.id}')" class="text-red-500"><i class="fas fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div>`;
+        };
+
+        // --- RENDER FUNCTIONS ---
+        function renderLogin() {
+            $('app').innerHTML = `
+                <div class="flex h-screen bg-slate-900 justify-center items-center p-4">
+                    <div class="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden relative z-10">
+                        <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-600"></div>
+                        
+                        <div class="pt-8 pb-2 text-center">
+                            <div class="inline-flex items-center justify-center w-20 h-20 bg-blue-100 rounded-full mb-4 shadow-lg">
+                                <i class="fas fa-shield-alt text-4xl text-blue-600"></i>
+                            </div>
+                            <h2 class="text-2xl font-bold text-gray-800">CBT ExamBrowser</h2>
+                            <p class="text-sm text-gray-500">Platform Ujian Online Aman</p>
+                        </div>
+
+                        <div class="flex border-b mt-4">
+                            <button id="tab-s" class="flex-1 py-4 font-bold bg-blue-600 text-white transition"><i class="fas fa-graduation-cap mr-2"></i> SISWA</button>
+                            <button id="tab-a" class="flex-1 py-4 font-bold bg-gray-100 text-gray-500 hover:bg-gray-200 transition"><i class="fas fa-user-shield mr-2"></i> ADMIN</button>
+                        </div>
+                        
+                        <div id="p-s" class="p-8">
+                            <div class="space-y-4">
+                                <input id="s-name" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Nama Lengkap Siswa">
+                                <select id="s-class" class="w-full px-4 py-3 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                                    <option value="">-- Pilih Kelas --</option>
+                                    ${generateClassOptions()}
+                                </select>
+                                <button onclick="window.loginSiswa()" class="w-full bg-blue-600 text-white py-3 rounded-lg font-bold shadow hover:bg-blue-700 transition transform active:scale-95">MASUK UJIAN</button>
+                            </div>
+                        </div>
+                        <div id="p-a" class="p-8 hidden">
+                            <div class="space-y-4">
+                                <input id="a-u" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-gray-500 outline-none" placeholder="Username">
+                                <input type="password" id="a-p" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-gray-500 outline-none" placeholder="Password">
+                                <button onclick="window.loginAdmin()" class="w-full bg-gray-800 text-white py-3 rounded-lg font-bold shadow hover:bg-black transition transform active:scale-95">LOGIN ADMIN</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            $('tab-s').onclick=()=>{ $('p-s').classList.remove('hidden');$('p-a').classList.add('hidden');$('tab-s').className="flex-1 py-4 font-bold bg-blue-600 text-white";$('tab-a').className="flex-1 py-4 font-bold bg-gray-100 text-gray-500"; };
+            $('tab-a').onclick=()=>{ $('p-s').classList.add('hidden');$('p-a').classList.remove('hidden');$('tab-s').className="flex-1 py-4 font-bold bg-gray-100 text-gray-500";$('tab-a').className="flex-1 py-4 font-bold bg-gray-800 text-white"; };
+        }
+
+        function renderTokenPage() {
+            const level = CLASS_MAPPING[state.user.class];
+            
+            const updateClock = () => {
+                const now = new Date();
+                const dateStr = now.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+                const timeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                const elDate = document.getElementById('token-date');
+                const elTime = document.getElementById('token-time');
+                if(elDate) elDate.innerText = dateStr;
+                if(elTime) elTime.innerText = timeStr;
+            };
+
+            $('app').innerHTML = `
+                <div class="flex flex-col h-screen bg-gray-100 justify-center items-center p-4 relative overflow-hidden">
+                    <!-- Decorative BG -->
+                    <div class="absolute top-0 left-0 w-full h-64 bg-blue-600 rounded-b-[3rem] shadow-lg z-0"></div>
+                    
+                    <!-- Time Display -->
+                    <div class="relative z-10 mb-8 text-center text-white">
+                        <div id="token-time" class="text-6xl font-black tracking-wider mb-2 font-mono drop-shadow-md">--:--:--</div>
+                        <div id="token-date" class="text-lg opacity-90 font-medium tracking-wide">...</div>
+                    </div>
+
+                    <!-- Token Card -->
+                    <div class="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md text-center relative z-10 border border-gray-100">
+                        <div class="mb-6">
+                            <div class="inline-block p-5 bg-blue-50 rounded-2xl shadow-inner">
+                                <i class="fas fa-key text-4xl text-blue-600"></i>
+                            </div>
+                        </div>
+                        <h2 class="text-2xl font-bold mb-2 text-gray-800">Verifikasi Token</h2>
+                        <p class="text-gray-500 text-sm mb-8">Silakan masukkan kode token yang diberikan pengawas.</p>
+                        
+                        <div class="bg-gray-50 border border-gray-200 p-4 rounded-xl mb-6 text-sm text-left space-y-3">
+                            <div class="flex justify-between border-b border-gray-200 pb-2">
+                                <span class="text-gray-500 font-medium"><i class="fas fa-user mr-2 text-blue-400"></i>Nama</span>
+                                <strong class="text-gray-800">${state.user.name}</strong>
+                            </div>
+                            <div class="flex justify-between pt-1">
+                                <span class="text-gray-500 font-medium"><i class="fas fa-graduation-cap mr-2 text-blue-400"></i>Kelas</span>
+                                <strong class="text-gray-800">${state.user.class}</strong>
+                            </div>
+                        </div>
+                        
+                        <div class="relative mb-8">
+                            <input id="token-in" type="text" class="w-full text-center text-3xl font-mono font-bold border-2 border-gray-200 rounded-2xl py-4 uppercase tracking-[0.5em] focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition placeholder-gray-200 text-gray-700" placeholder="TOKEN" maxlength="5">
+                        </div>
+                        
+                        <button onclick="window.checkToken()" class="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-4 rounded-xl font-bold hover:shadow-lg transform active:scale-[0.98] transition text-lg shadow-blue-200 shadow-lg">
+                            MULAI UJIAN <i class="fas fa-arrow-right ml-2"></i>
+                        </button>
+                        
+                        <button onclick="window.location.reload()" class="mt-6 text-red-500 text-sm font-bold hover:underline flex items-center justify-center w-full gap-1"><i class="fas fa-sign-out-alt"></i> Batal / Logout</button>
+                    </div>
+                </div>
+            `;
+            
+            if(state.clockInterval) clearInterval(state.clockInterval);
+            state.clockInterval = setInterval(updateClock, 1000);
+            updateClock();
+        }
+
+        function renderExamPage() {
+            if(!state.isPreview) { try { document.documentElement.requestFullscreen().catch(e=>{}); } catch(e){} }
+            const q = state.examData.questions[state.currentQuestionIndex];
+            const totalQ = state.examData.questions.length;
+            const isDoubt = state.doubts[state.currentQuestionIndex];
+            const imagesHtml = q.images && q.images.length > 0 ? `<div class="flex gap-2 flex-wrap mb-4">${q.images.map(src => `<img src="${src}" class="h-32 object-cover rounded border cursor-pointer hover:opacity-75" onclick="Swal.fire({imageUrl: '${src}', showConfirmButton: false})">`).join('')}</div>` : '';
+
+            let content = '';
+            if(q.type === 'PG') {
+                content = `<div class="space-y-2">` + q.options.map((opt, i) => {
+                    const active = state.answers[state.currentQuestionIndex] === opt;
+                    const escOpt = opt.replace(/'/g, "\\'");
+                    return `<div onclick="window.handleSelectOption('PG', '${escOpt}', ${i})" id="opt-${i}" class="option-card flex items-center p-3 border rounded-lg cursor-pointer transition hover:bg-gray-50 ${active ? 'selected bg-blue-100 border-blue-500' : 'bg-white'}"><div class="opt-char w-8 h-8 flex items-center justify-center bg-gray-200 rounded font-bold mr-3 ${active ? 'bg-blue-600 text-white' : ''}">${String.fromCharCode(65+i)}</div><div class="text-lg">${opt}</div></div>`;
+                }).join('') + `</div>`;
+            } else if(q.type === 'TrueFalse') {
+                content = `<div class="space-y-2">` + ['True','False'].map((o, i) => {
+                    const active = state.answers[state.currentQuestionIndex] === o;
+                    return `<div onclick="window.handleSelectOption('TF', '${o}', ${i})" id="opt-${i}" class="option-card p-3 border rounded text-center font-bold cursor-pointer transition ${active ? 'selected bg-blue-600 text-white border-blue-600' : 'bg-white hover:bg-gray-50'}">${o}</div>`;
+                }).join('') + `</div>`;
+            } else if(q.type === 'Matching') {
+                if(!q.shuffledRight) q.shuffledRight = q.pairs.map((p, i) => ({ text: p.right, id: i })).sort(() => Math.random() - 0.5);
+                content = `<div class="bg-white p-4 rounded border relative select-none" id="match-container-${state.currentQuestionIndex}" style="min-height: 300px;"><svg class="absolute inset-0 w-full h-full pointer-events-none z-10" id="match-svg"></svg><div class="flex justify-between gap-8 relative z-20"><div class="flex-1 space-y-6">${q.pairs.map((p, i) => `<div id="left-${i}" class="match-item left-item bg-gray-50 border p-4 rounded shadow-sm text-sm font-medium relative" onclick="window.handleMatchClick('left', ${i})">${p.left}<div class="match-point"></div></div>`).join('')}</div><div class="flex-1 space-y-6">${q.shuffledRight.map((item, i) => `<div id="right-${item.id}" class="match-item right-item bg-gray-50 border p-4 rounded shadow-sm text-sm relative" onclick="window.handleMatchClick('right', ${item.id})"><div class="match-point"></div>${item.text}</div>`).join('')}</div></div><div class="text-center mt-4 text-xs text-gray-400">Klik titik kiri lalu klik titik kanan.</div></div>`;
+                setTimeout(() => window.drawMatchLines(), 100);
+                window.addEventListener('resize', window.drawMatchLines);
+            } else if(q.type === 'Essay') {
+                content = `<textarea oninput="window.handleEssayInput(this.value)" class="w-full h-48 p-4 border rounded text-lg focus:ring-2 focus:ring-blue-500">${state.answers[state.currentQuestionIndex]||''}</textarea>`;
+            }
+
+            const referenceHtml = q.referenceText ? `<div class="mb-4 inline-block bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-xs font-bold border border-yellow-200"><i class="fas fa-bookmark mr-1"></i> ${q.referenceText}</div>` : '';
+
+            $('app').innerHTML = `
+                <div class="flex flex-col h-screen bg-white">
+                    <div class="bg-slate-900 text-white px-4 py-3 flex justify-between items-center shadow-md z-30">
+                        <div class="flex gap-3 items-center"><div class="bg-white/10 p-2 rounded hidden md:block"><i class="fas fa-user"></i></div><div class="leading-tight"><div class="font-bold text-sm md:text-lg truncate w-32 md:w-auto">${state.user.name}</div><div class="text-[10px] md:text-xs text-gray-400">${state.examData.subject || 'Ujian'}</div></div></div>
+                        ${state.isPreview ? `<button onclick="window.closePreview()" class="bg-red-500 px-4 py-1 rounded font-bold text-sm">Tutup</button>` : `<div class="flex items-center gap-3"><div class="text-center bg-slate-800 px-3 py-1 rounded border border-slate-700"><div id="timer" class="text-lg md:text-xl font-mono font-bold text-yellow-400">Loading</div></div><button onclick="window.toggleStudentNav()" class="lg:hidden bg-slate-700 p-2 rounded text-white"><i class="fas fa-th-large"></i></button></div>`}
+                        <button onclick="window.finishExam()" class="hidden lg:block bg-green-600 px-4 py-2 rounded font-bold hover:bg-green-500 text-sm">SELESAI</button>
+                    </div>
+                    <div class="flex flex-1 overflow-hidden relative"><div class="flex-1 overflow-y-auto p-4 md:p-6 bg-gray-50"><div class="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border min-h-[500px] flex flex-col"><div class="p-4 border-b flex justify-between items-center bg-gray-50/50 rounded-t-xl"><span class="bg-blue-600 text-white px-3 py-1 rounded font-bold text-sm">Soal No. ${state.currentQuestionIndex+1}</span><span class="text-gray-500 font-bold text-xs uppercase">${q.type}</span></div><div class="p-6 md:p-8 flex-1">${referenceHtml}${q.wacana ? `<div class="mb-6 p-4 bg-blue-50 border-l-4 border-blue-400 text-gray-700 leading-relaxed text-justify text-sm">${q.wacana.replace(/\n/g,'<br>')}</div>` : ''}<div class="text-lg md:text-xl font-medium text-gray-800 mb-6 leading-relaxed" style="white-space: pre-wrap;">${q.text}</div>${imagesHtml}<div class="max-w-3xl">${content}</div></div><div class="p-4 border-t bg-gray-50 flex justify-between items-center rounded-b-xl"><button onclick="window.navQuestion(-1)" ${state.currentQuestionIndex===0?'disabled':''} class="px-4 py-2 rounded bg-white border shadow-sm hover:bg-gray-100 disabled:opacity-50 text-sm md:text-base"><i class="fas fa-chevron-left md:hidden"></i><span class="hidden md:inline">Sebelumnya</span></button><label class="flex items-center gap-2 cursor-pointer bg-yellow-100 px-3 py-2 rounded border border-yellow-200 hover:bg-yellow-200 transition"><input type="checkbox" onchange="window.toggleDoubt(this.checked)" ${isDoubt?'checked':''} class="w-4 h-4 text-yellow-600 rounded"><span class="text-yellow-800 font-bold text-xs md:text-sm">Ragu-ragu</span></label>${state.currentQuestionIndex===totalQ-1 ? `<button onclick="window.finishExam()" class="lg:hidden px-4 py-2 rounded bg-green-600 text-white shadow font-bold text-sm">Selesai</button>` : `<button onclick="window.navQuestion(1)" class="px-4 py-2 rounded bg-blue-600 text-white shadow hover:bg-blue-700 text-sm md:text-base"><i class="fas fa-chevron-right md:hidden"></i><span class="hidden md:inline">Selanjutnya</span></button>`}</div></div></div><div class="hidden lg:flex w-80 bg-white border-l flex-col z-20 shadow-lg">${renderNavContent()}</div><div id="student-drawer" class="mobile-drawer student-drawer lg:hidden flex flex-col"><div class="p-4 border-b flex justify-between items-center bg-gray-100"><span class="font-bold">Navigasi Soal</span><button onclick="window.toggleStudentNav()" class="text-gray-500"><i class="fas fa-times text-xl"></i></button></div>${renderNavContent()}</div><div id="drawer-overlay" onclick="window.closeDrawers()" class="drawer-overlay"></div></div></div>`;
+        }
+
+        function renderNavContent() {
+             return `<div class="p-4 border-b bg-gray-50 font-bold text-gray-700 flex items-center gap-2 shadow-sm"><i class="fas fa-th-large text-blue-500"></i> Daftar Soal</div><div class="p-4 overflow-y-auto flex-1"><div id="nav-grid" class="grid grid-cols-5 gap-2">${renderNavGridItems()}</div><div class="mt-6 space-y-2 text-xs font-bold text-gray-500 border-t pt-4"><div class="flex items-center gap-2"><div class="w-4 h-4 rounded bg-[#10b981]"></div> Sudah Dijawab</div><div class="flex items-center gap-2"><div class="w-4 h-4 rounded bg-[#f59e0b]"></div> Ragu-ragu</div></div></div>`;
+        }
+
+        function renderNavGridItems() {
+            return state.examData.questions.map((_, i) => {
+                const ans = state.answers[i];
+                const hasAns = ans && (typeof ans === 'object' ? Object.keys(ans).length > 0 : true) || (ans && ans.length > 0);
+                const isDbt = state.doubts[i];
+                const isCur = state.currentQuestionIndex === i;
+                let cls = ''; if (isCur) cls = 'active'; else if (isDbt) cls = 'doubt'; else if (hasAns) cls = 'answered';
+                return `<div onclick="window.jumpQuestion(${i})" class="question-nav-btn ${cls}">${i+1}</div>`;
+            }).join('');
+        }
+
+        // --- ADMIN DASHBOARD ---
+        function renderAdminDashboard(initialPage = 'list', initialData = null) {
+            $('app').innerHTML = `
+                <div class="flex h-screen bg-gray-100 text-sm font-inter overflow-hidden">
+                    <div class="lg:hidden w-full bg-slate-900 text-white p-4 flex items-center justify-between z-30 shadow-md absolute top-0">
+                        <div class="flex items-center gap-3"><button onclick="window.toggleAdminNav()" class="text-white hover:bg-slate-700 p-1 rounded"><i class="fas fa-bars text-xl"></i></button><div class="font-bold flex items-center gap-2"><i class="fas fa-shield-alt"></i> CBT ADMIN</div></div>
+                    </div>
+                    <div id="admin-drawer" class="mobile-drawer admin-drawer lg:static lg:transform-none lg:w-64 lg:flex lg:flex-col lg:shadow-2xl lg:z-20 bg-slate-900 text-slate-300 h-full">
+                        <div class="p-6 border-b border-slate-700 font-bold text-xl text-white tracking-wider flex items-center gap-2 hidden lg:flex"><i class="fas fa-shield-alt text-blue-500"></i> CBT ADMIN</div>
+                        <div class="p-4 lg:hidden border-b border-slate-700 flex justify-end"><button onclick="window.toggleAdminNav()" class="text-white"><i class="fas fa-times"></i></button></div>
+                        <nav class="flex-1 p-4 space-y-2 overflow-y-auto">
+                            <button onclick="window.loadAdminPage('list');window.closeDrawers()" class="w-full text-left p-3 rounded hover:bg-slate-800 flex items-center gap-3 transition"><i class="fas fa-list w-6"></i> Daftar Ujian</button>
+                            <button onclick="window.loadAdminPage('editor');window.closeDrawers()" class="w-full text-left p-3 rounded hover:bg-slate-800 flex items-center gap-3 transition"><i class="fas fa-plus-circle w-6"></i> Buat Ujian Baru</button>
+                            <button onclick="window.loadAdminPage('results');window.closeDrawers()" class="w-full text-left p-3 rounded hover:bg-slate-800 flex items-center gap-3 transition"><i class="fas fa-chart-line w-6"></i> Hasil Ujian</button>
+                            <button onclick="window.loadAdminPage('token');window.closeDrawers()" class="w-full text-left p-3 rounded hover:bg-slate-800 flex items-center gap-3 transition"><i class="fas fa-key w-6"></i> Monitor Token</button>
+                        </nav>
+                        <div class="p-4 border-t border-slate-700"><button onclick="location.reload()" class="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded font-bold shadow transition"><i class="fas fa-sign-out-alt mr-2"></i> Logout</button></div>
+                    </div>
+                    <div class="flex-1 flex flex-col h-full overflow-hidden bg-gray-50 pt-14 lg:pt-0"><div id="admin-content" class="flex-1 overflow-y-auto p-4 md:p-6 relative"></div></div>
+                    <div id="drawer-overlay" onclick="window.closeDrawers()" class="drawer-overlay lg:hidden"></div>
+                </div>`;
+            window.loadAdminPage(initialPage, initialData);
+        }
+
+        window.loadAdminPage = (page, data = null) => {
+            if(state.countdownInterval) clearInterval(state.countdownInterval);
+            const container = $('admin-content');
+            if (page === 'list') window.renderExamList(container);
+            else if (page === 'editor') {
+                if(data && !data.resume) {
+                    state.editorQuestions = data.questions || [];
+                    state.currentExamId = data.id;
+                    setTimeout(() => { if($('ed-level')) $('ed-level').value = data.level; if($('ed-subject')) $('ed-subject').value = data.subject || ''; if($('ed-time')) $('ed-time').value = data.timeLimit; }, 100);
+                } else if (!data) { state.editorQuestions = []; state.currentExamId = null; }
+                container.innerHTML = `
+                    <div class="flex flex-col lg:flex-row h-full gap-6">
+                        <div class="w-full lg:w-80 flex-shrink-0 bg-white p-6 rounded-xl shadow-sm border border-gray-200 overflow-y-auto h-auto lg:h-full" id="editor-settings-panel">
+                            <h3 class="font-bold text-gray-800 mb-4 border-b pb-2">PROPERTI UJIAN</h3>
+                            <div class="space-y-4 mb-6">
+                                <div><label class="text-xs font-bold text-gray-500 uppercase">Mata Pelajaran</label><input type="text" id="ed-subject" class="w-full p-2 border rounded bg-gray-50"></div>
+                                <div><label class="text-xs font-bold text-gray-500 uppercase">Tingkatan</label><select id="ed-level" class="w-full p-2 border rounded bg-gray-50">${ADMIN_LEVELS.map(l=>`<option value="${l}">${l}</option>`).join('')}</select></div>
+                                <div><label class="text-xs font-bold text-gray-500 uppercase">Durasi (Menit)</label><input type="number" id="ed-time" value="90" class="w-full p-2 border rounded bg-gray-50"></div>
+                            </div>
+                            <h3 class="font-bold text-gray-800 mb-4 border-b pb-2">TOOLBOX</h3>
+                            <div class="grid grid-cols-2 gap-2 mb-6">
+                                <button onclick="window.addQ('PG')" class="p-2 rounded bg-blue-50 text-blue-700 text-xs font-bold hover:bg-blue-100">+ PG</button>
+                                <button onclick="window.addQ('TrueFalse')" class="p-2 rounded bg-green-50 text-green-700 text-xs font-bold hover:bg-green-100">+ True/False</button>
+                                <button onclick="window.addQ('Matching')" class="p-2 rounded bg-purple-50 text-purple-700 text-xs font-bold hover:bg-purple-100">+ Jodoh</button>
+                                <button onclick="window.addQ('Essay')" class="p-2 rounded bg-yellow-50 text-yellow-700 text-xs font-bold hover:bg-yellow-100">+ Essay</button>
+                            </div>
+                            <div class="bg-indigo-50 p-4 rounded mb-4 border border-indigo-100">
+                                <h4 class="font-bold text-xs text-indigo-700 mb-3 flex items-center gap-2"><i class="fas fa-robot"></i> GENERATE SOAL VIA AI</h4>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <button onclick="window.openAI_File()" class="bg-white border border-indigo-200 text-indigo-600 p-2 rounded text-xs font-bold hover:bg-indigo-50">Upload File</button>
+                                    <button onclick="window.openAI_Text()" class="bg-white border border-indigo-200 text-indigo-600 p-2 rounded text-xs font-bold hover:bg-indigo-50">Input Teks</button>
+                                </div>
+                                <input type="file" id="ai-file-input" class="hidden" accept=".pdf,.docx" onchange="window.handleAIFile(this)">
+                            </div>
+                            
+                            <!-- MOBILE TAB NAV -->
+                            <div class="lg:hidden flex border-b mb-4 bg-white sticky top-0 z-10">
+                                <button onclick="window.setMobileEditorTab('settings')" class="flex-1 p-3 font-bold text-sm border-b-2 border-blue-600 text-blue-600 editor-tab-btn active" id="mob-tab-settings">Pengaturan</button>
+                                <button onclick="window.setMobileEditorTab('list')" class="flex-1 p-3 font-bold text-sm text-gray-500 editor-tab-btn" id="mob-tab-list">Daftar Soal</button>
+                            </div>
+
+                            <button onclick="window.previewExam()" class="w-full mb-3 bg-gray-800 text-white p-3 rounded font-bold hover:bg-gray-900 shadow">PREVIEW</button>
+                            <button onclick="window.saveToDB()" class="w-full bg-blue-600 text-white p-3 rounded font-bold hover:bg-blue-700 shadow-lg">SIMPAN UJIAN</button>
+                        </div>
+                        <div class="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-full overflow-hidden hidden lg:flex" id="editor-list-panel">
+                            <div class="p-4 border-b bg-gray-50 flex justify-between items-center"><span class="font-bold text-gray-700" id="q-total">0 Soal</span><button onclick="window.clearAllQ()" class="text-red-500 text-xs font-bold hover:underline">HAPUS SEMUA</button></div>
+                            <div id="q-list" class="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50"></div>
+                        </div>
+                    </div>`;
+                setTimeout(() => window.renderQList(), 0);
+            } else if (page === 'results') window.loadResults(container);
+            else if (page === 'token') {
+                container.innerHTML = `<div class="flex items-center justify-center h-full"><div class="bg-white p-12 rounded-3xl shadow-xl text-center border relative overflow-hidden w-full max-w-lg"><h3 class="text-gray-400 font-bold uppercase tracking-[0.3em] mb-8 text-sm">TOKEN UJIAN AKTIF</h3><div class="text-8xl font-black text-slate-800 font-mono tracking-tighter mb-8" id="adm-token">...</div><div class="flex items-center justify-center gap-4 text-gray-500 font-mono bg-gray-50 p-4 rounded-xl border border-gray-100"><span class="text-xs font-bold uppercase tracking-wide text-gray-400">Refresh Dalam</span><div id="token-countdown" class="text-2xl font-bold text-blue-600">05:00</div></div></div></div>`;
+                startTokenListener();
+            }
+        };
+
+        // --- HELPER UNTUK UI SOAL ---
+        window.handleSelectOption = (type, val, index) => {
+            state.answers[state.currentQuestionIndex] = val;
+            if(type === 'PG') {
+                document.querySelectorAll('.option-card').forEach(el => { el.classList.remove('selected','bg-blue-100','border-blue-500'); el.classList.add('bg-white'); el.querySelector('.opt-char').classList.remove('bg-blue-600','text-white'); });
+                const sel = document.getElementById(`opt-${index}`);
+                if(sel) { sel.classList.add('selected','bg-blue-100','border-blue-500'); sel.querySelector('.opt-char').classList.add('bg-blue-600','text-white'); }
+            } else if (type === 'TF') {
+                document.querySelectorAll('.option-card').forEach(el => { el.classList.remove('selected','bg-blue-600','text-white'); el.classList.add('bg-white'); });
+                const sel = document.getElementById(`opt-${index}`);
+                if(sel) sel.classList.add('selected','bg-blue-600','text-white');
+            }
+            window.updateNavGrid();
+        };
+        window.handleMatchClick = (side, index) => {
+            if(!state.matchSelection) {
+                state.matchSelection = { side, index };
+                document.querySelectorAll('.match-item').forEach(el => el.classList.remove('selected'));
+                document.getElementById(`${side}-${index}`).classList.add('selected');
+                document.querySelector(`#${side}-${index} .match-point`).classList.add('active');
+            } else {
+                const first = state.matchSelection;
+                if(first.side === side) {
+                     state.matchSelection = { side, index };
+                     document.querySelectorAll('.match-item').forEach(el => el.classList.remove('selected'));
+                     document.querySelectorAll('.match-point').forEach(el => el.classList.remove('active'));
+                     document.getElementById(`${side}-${index}`).classList.add('selected');
+                     document.querySelector(`#${side}-${index} .match-point`).classList.add('active');
+                } else {
+                    const leftIdx = side === 'left' ? index : first.index;
+                    const rightIdx = side === 'right' ? index : first.index;
+                    const q = state.examData.questions[state.currentQuestionIndex];
+                    const rightText = q.shuffledRight.find(x => x.id === rightIdx).text;
+                    const leftText = q.pairs[leftIdx].left;
+                    if(!state.answers[state.currentQuestionIndex]) state.answers[state.currentQuestionIndex] = {};
+                    state.answers[state.currentQuestionIndex][leftText] = rightText;
+                    state.matchSelection = null;
+                    document.querySelectorAll('.match-item').forEach(el => el.classList.remove('selected'));
+                    document.querySelectorAll('.match-point').forEach(el => el.classList.remove('active'));
+                    window.drawMatchLines(); window.updateNavGrid();
+                }
+            }
+        };
+        window.drawMatchLines = () => {
+            const svg = document.getElementById('match-svg');
+            if(!svg) return;
+            svg.innerHTML = ''; 
+            const q = state.examData.questions[state.currentQuestionIndex];
+            const currentAns = state.answers[state.currentQuestionIndex] || {};
+            Object.entries(currentAns).forEach(([leftTxt, rightTxt]) => {
+                const leftIdx = q.pairs.findIndex(p => p.left === leftTxt);
+                const rightObj = q.shuffledRight.find(x => x.text === rightTxt);
+                if(leftIdx !== -1 && rightObj) {
+                    const leftEl = document.querySelector(`#left-${leftIdx} .match-point`);
+                    const rightEl = document.querySelector(`#right-${rightObj.id} .match-point`);
+                    if(leftEl && rightEl) {
+                        const sR = svg.getBoundingClientRect();
+                        const lR = leftEl.getBoundingClientRect();
+                        const rR = rightEl.getBoundingClientRect();
+                        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                        line.setAttribute("x1", lR.left + lR.width/2 - sR.left);
+                        line.setAttribute("y1", lR.top + lR.height/2 - sR.top);
+                        line.setAttribute("x2", rR.left + rR.width/2 - sR.left);
+                        line.setAttribute("y2", rR.top + rR.height/2 - sR.top);
+                        line.onclick = () => { delete state.answers[state.currentQuestionIndex][leftTxt]; window.drawMatchLines(); window.updateNavGrid(); };
+                        svg.appendChild(line);
+                    }
+                }
+            });
+        };
+        window.updateNavGrid = () => { const g=$('nav-grid'); if(g) g.innerHTML = renderNavGridItems(); };
+        window.toggleDoubt = (c) => { state.doubts[state.currentQuestionIndex] = c; window.updateNavGrid(); };
+        window.renderExamList = async (container) => {
+            container.innerHTML = '<div class="text-center p-10">Loading...</div>';
+            const q = query(collection(db, "exams"));
+            const snaps = await getDocs(q);
+            const exams = snaps.docs.map(d => ({id:d.id, ...d.data()}));
+            container.innerHTML = `<div class="bg-white rounded-xl shadow-sm border p-6"><div class="flex justify-between items-center mb-6"><h2 class="text-xl font-bold">Daftar Ujian</h2><button onclick="window.loadAdminPage('editor')" class="bg-blue-600 text-white px-4 py-2 rounded font-bold text-sm">+ Buat Baru</button></div><table class="w-full text-left"><thead><tr class="border-b"><th class="p-4">Mapel</th><th class="p-4">Status</th><th class="p-4 text-right">Aksi</th></tr></thead><tbody>${exams.map(e => `<tr class="border-b"><td class="p-4 font-bold">${e.subject}<br><span class="text-xs text-gray-500">${e.level}</span></td><td class="p-4"><button onclick="window.toggleExamStatus('${e.id}', ${e.isActive})" class="${e.isActive?'bg-green-100 text-green-700':'bg-red-100 text-red-700'} px-3 py-1 rounded text-xs font-bold">${e.isActive?'AKTIF':'NONAKTIF'}</button></td><td class="p-4 text-right"><button onclick='window.editExam(${JSON.stringify(e).replace(/'/g,"&#39;")})' class="text-blue-500 mr-2"><i class="fas fa-edit"></i></button><button onclick="window.deleteExam('${e.id}')" class="text-red-500"><i class="fas fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div>`;
+        };
+
+        // --- DRAG AND DROP LOGIC (REORDER SOAL) ---
+        window.moveQ = (from, dir) => {
+            if(dir === -1 && from > 0) {
+                const item = state.editorQuestions.splice(from, 1)[0];
+                state.editorQuestions.splice(from-1, 0, item);
+            } else if (dir === 1 && from < state.editorQuestions.length-1) {
+                const item = state.editorQuestions.splice(from, 1)[0];
+                state.editorQuestions.splice(from+1, 0, item);
+            }
+            window.renderQList();
+        };
+
+        // --- MOBILE EDITOR TAB LOGIC ---
+        window.setMobileEditorTab = (tab) => {
+            const settings = document.getElementById('editor-settings-panel');
+            const list = document.getElementById('editor-list-panel');
+            const btnS = document.getElementById('mob-tab-settings');
+            const btnL = document.getElementById('mob-tab-list');
+
+            if(window.innerWidth < 1024) {
+                if(tab === 'settings') {
+                    settings.style.display = 'block';
+                    list.style.display = 'none';
+                    // Classes for active tab
+                    btnS.classList.add('text-blue-600', 'border-blue-600');
+                    btnS.classList.remove('text-gray-500');
+                    
+                    btnL.classList.remove('text-blue-600', 'border-blue-600');
+                    btnL.classList.add('text-gray-500');
+                } else {
+                    settings.style.display = 'none';
+                    list.classList.remove('hidden'); // Ensure hidden class removed
+                    list.style.display = 'flex'; // Explicit display flex for panel
+                    
+                    btnL.classList.add('text-blue-600', 'border-blue-600');
+                    btnL.classList.remove('text-gray-500');
+
+                    btnS.classList.remove('text-blue-600', 'border-blue-600');
+                    btnS.classList.add('text-gray-500');
+                }
+            }
+        };
+
+
+        window.renderQList = () => {
+            const listEl = $('q-list');
+            if(!listEl) return;
+            listEl.innerHTML = state.editorQuestions.map((q, i) => `
+                <div class="bg-white border border-gray-200 p-6 rounded-lg shadow-sm relative group transition hover:shadow-md">
+                    <div class="flex justify-between items-center mb-4 border-b pb-2">
+                        <div class="flex items-center gap-2">
+                            <button onclick="window.moveQ(${i}, -1)" class="text-gray-400 hover:text-blue-600 px-1"><i class="fas fa-arrow-up"></i></button>
+                            <button onclick="window.moveQ(${i}, 1)" class="text-gray-400 hover:text-blue-600 px-1"><i class="fas fa-arrow-down"></i></button>
+                            <span class="font-bold text-lg text-blue-600 ml-2">Soal No. ${i+1}</span>
+                        </div>
+                        <button onclick="window.delQ(${i})" class="text-red-400 hover:text-red-600 transition p-2"><i class="fas fa-trash-alt"></i> Hapus</button>
+                    </div>
+                    <div class="flex gap-2 mb-4"><span class="bg-gray-100 px-2 py-1 rounded text-xs font-bold uppercase border">${q.type}</span><input type="number" placeholder="Poin" class="w-20 text-xs border rounded px-2" value="${q.points||0}" onchange="window.updQ(${i},'points',this.value)"><input type="text" placeholder="Penanda Soal" class="border rounded px-2 text-xs flex-1" value="${q.referenceText||''}" onchange="window.updQ(${i},'referenceText',this.value)"></div>
+                    <div class="mb-4 space-y-3"><div class="border rounded-lg overflow-hidden"><div class="bg-gray-50 p-1 flex gap-1 border-b editor-toolbar"><span class="text-xs font-bold p-2 text-gray-500">WACANA:</span><button onclick="window.insTagWacana(${i},'b')" class="font-bold">B</button><button onclick="window.insTagWacana(${i},'i')" class="italic">I</button><button onclick="window.insTagWacana(${i},'u')" class="underline">U</button></div><textarea id="qwacana-${i}" placeholder="Wacana" class="w-full p-3 bg-white text-sm h-20 outline-none" onchange="window.updQ(${i},'wacana',this.value)">${q.wacana||''}</textarea></div><div class="border rounded-lg overflow-hidden"><div class="bg-gray-50 p-1 flex gap-1 border-b editor-toolbar"><span class="text-xs font-bold p-2 text-gray-500">PERTANYAAN:</span><button onclick="window.insTag(${i},'b')" class="font-bold">B</button><button onclick="window.insTag(${i},'i')" class="italic">I</button><button onclick="window.insTag(${i},'u')" class="underline">U</button><button onclick="window.insTag(${i},'sup')" class="text-xs">x²</button><button onclick="window.insTag(${i},'sub')" class="text-xs">x₂</button></div><textarea id="qtext-${i}" placeholder="Ketik Pertanyaan..." class="w-full p-3 outline-none" rows="3" onchange="window.updQ(${i},'text',this.value)">${q.text||''}</textarea></div><div class="flex items-center gap-2"><label class="cursor-pointer bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded text-xs font-bold text-gray-600 flex items-center gap-1"><i class="fas fa-image"></i> Upload Gambar (Max 3)<input type="file" class="hidden" multiple accept="image/*" onchange="window.handleImageUpload(this, ${i})"></label><div id="img-preview-${i}" class="flex gap-2">${(q.images||[]).map((img,idx)=>`<div class="relative"><img src="${img}" class="h-10 w-10 object-cover rounded border"><button onclick="window.delImg(${i},${idx})" class="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]">&times;</button></div>`).join('')}</div></div></div>${renderOptions(q,i)}
+                </div>`).join('');
+            $('q-total').innerText = `${state.editorQuestions.length} Soal`;
+        };
+
+        function renderOptions(q, i) {
+            if (q.type === 'PG') return `<div class="space-y-2">${q.options.map((o,k)=>`<div class="flex gap-2 items-center"><input type="radio" name="k-${i}" ${q.key===o?'checked':''} onclick="window.setKey(${i},'${o.replace(/'/g,"\\'")}')"><span class="font-bold text-gray-400 w-6 h-6 flex items-center justify-center border rounded bg-gray-50 text-xs">${String.fromCharCode(65+k)}</span><input class="flex-1 border p-2 rounded text-sm" value="${o}" onchange="window.updOpt(${i},${k},this.value)" placeholder="Opsi"><button onclick="window.delOpt(${i},${k})" class="text-red-300 hover:text-red-500 px-1">x</button></div>`).join('')}<div class="flex gap-2 mt-2 items-center"><button onclick="window.addOpt(${i})" class="text-xs bg-blue-50 text-blue-600 px-3 py-1 rounded font-bold hover:bg-blue-100">+ Tambah Opsi</button><textarea class="flex-1 border border-dashed rounded p-1 text-xs h-8" placeholder="Magic Paste..." oninput="window.handlePasteOptions(${i}, this.value); this.value=''"></textarea></div></div>`;
+            if (q.type === 'TrueFalse') return `<div class="flex gap-4"><label class="flex gap-2 items-center p-2 border rounded cursor-pointer bg-green-50 hover:bg-green-100"><input type="radio" name="tf-${i}" ${q.key==='True'?'checked':''} onclick="window.setKey(${i},'True')"><span class="font-bold text-green-700">TRUE</span></label><label class="flex gap-2 items-center p-2 border rounded cursor-pointer bg-red-50 hover:bg-red-100"><input type="radio" name="tf-${i}" ${q.key==='False'?'checked':''} onclick="window.setKey(${i},'False')"><span class="font-bold text-red-700">FALSE</span></label></div>`;
+            if (q.type === 'Matching') return `<div class="bg-purple-50 p-4 rounded text-sm border border-purple-200"><div class="font-bold text-purple-800 mb-2">PASANGAN</div>${q.pairs.map((p,k)=>`<div class="flex gap-2 mb-2 items-center"><span class="text-xs font-bold text-gray-400 w-4">${k+1}.</span><input class="flex-1 p-2 border rounded text-sm" placeholder="Kiri" value="${p.left}" onchange="window.updPair(${i},${k},'left',this.value)"><i class="fas fa-arrow-right text-purple-400"></i><input class="flex-1 p-2 border rounded text-sm" placeholder="Kanan" value="${p.right}" onchange="window.updPair(${i},${k},'right',this.value)"><button onclick="window.delPair(${i},${k})" class="text-red-400">x</button></div>`).join('')}<button onclick="window.addPair(${i})" class="mt-2 text-xs bg-purple-600 text-white px-3 py-1 rounded font-bold">+ Tambah Pasangan</button></div>`;
+            return '';
+        }
+        // Shortened logic helpers remain same as before...
+        window.handlePasteOptions = (i,t)=>{ const l=t.split(/\n/).map(x=>x.trim()).filter(x=>x); if(l.length){ while(state.editorQuestions[i].options.length<l.length&&state.editorQuestions[i].options.length<5) state.editorQuestions[i].options.push(''); l.slice(0,5).forEach((x,k)=>state.editorQuestions[i].options[k]=x.replace(/^[A-Ea-e1-5][\.\)]\s*/,'')); renderQList(); }};
+        window.handleEssayInput = (v)=>{ state.answers[state.currentQuestionIndex]=v; window.updateNavGrid(); };
+        
+        // --- UPDATED: LOGIN POPUP MODERN ---
+        window.loginSiswa = async ()=>{ 
+            if(!$('s-name').value || !$('s-class').value) {
+                return Swal.fire({
+                    html: `
+                        <div class="text-center">
+                            <div class="mb-4 text-yellow-500 animate-bounce">
+                                <i class="fas fa-exclamation-circle text-6xl"></i>
+                            </div>
+                            <h3 class="text-xl font-bold text-gray-800 mb-2">Data Belum Lengkap</h3>
+                            <p class="text-gray-500 text-sm">Mohon isi <b>Nama Lengkap</b> dan <b>Kelas</b> sebelum melanjutkan.</p>
+                        </div>
+                    `,
+                    showConfirmButton: true,
+                    confirmButtonText: 'OK, Saya Mengerti',
+                    confirmButtonColor: '#f59e0b',
+                    customClass: { popup: 'rounded-2xl p-6 shadow-2xl' }
+                });
+            }
+            await signInAnonymously(auth); 
+            state.user={name:$('s-name').value,class:$('s-class').value}; 
+            renderTokenPage(); 
+        };
+
+        window.checkToken = async ()=>{ const t=await getDoc(doc(db,"system","token")); if($('token-in').value.toUpperCase()===(t.exists()?t.data().code:"ABCDE")){ const q=query(collection(db,"exams"),where("level","==",CLASS_MAPPING[state.user.class]),where("isActive","==",true)); const s=await getDocs(q); if(s.empty) return Swal.fire('Info','Tidak ada ujian','info'); state.examData=s.docs[0].data(); state.isPreview=false; state.cheatCount=0; state.answers={}; state.view = 'exam'; state.startTime = new Date(); startTimer(state.examData.timeLimit*60); renderExamPage(); } else Swal.fire('Error','Token Salah','error'); };
+        window.toggleAdminNav = ()=>{ $('admin-drawer').classList.toggle('open'); $('drawer-overlay').classList.toggle('show'); };
+        window.toggleStudentNav = ()=>{ $('student-drawer').classList.toggle('open'); $('drawer-overlay').classList.toggle('show'); };
+        window.closeDrawers = ()=>{ document.querySelectorAll('.mobile-drawer').forEach(d=>d.classList.remove('open')); $('drawer-overlay').classList.remove('show'); };
+        window.navQuestion = (d)=>{ state.currentQuestionIndex+=d; renderExamPage(); };
+        window.jumpQuestion = (i)=>{ state.currentQuestionIndex=i; if(window.innerWidth<1024) window.closeDrawers(); renderExamPage(); };
+        function startTimer(d){ clearInterval(state.timerInterval); state.timerInterval=setInterval(()=>{ let m=Math.floor(d/60),s=d%60; if($('timer')) $('timer').innerText=`${m}:${s<10?'0'+s:s}`; if(--d<0) window.finishExam(true); },1000); }
+        window.finishExam = async (f)=>{
+            const hasDoubt=Object.values(state.doubts).some(v=>v); if(hasDoubt) return Swal.fire('Info','Masih ada ragu-ragu','warning');
+            const totQ=state.examData.questions.length; const ansQ=state.examData.questions.reduce((c,q,i)=>{ const a=state.answers[i]; return (q.type==='Matching'?(a&&Object.keys(a).length>0):(a!==undefined&&a!==null&&a!==''))?c+1:c; },0);
+            if(ansQ<totQ) return Swal.fire('Info',`Baru dijawab ${ansQ} dari ${totQ}`,'warning');
+            if(!f && !(await Swal.fire({title:'Selesai?',icon:'question',showCancelButton:true})).isConfirmed) return;
+            clearInterval(state.timerInterval);
+            let sc=0, tot=0; let stats={PG:{correct:0,wrong:0},TrueFalse:{correct:0,wrong:0},Matching:{correct:0,wrong:0},Essay:{count:0}};
+            state.examData.questions.forEach((q,i)=>{
+                const pts=parseInt(q.points)||10; tot+=pts; const ans=state.answers[i];
+                if(q.type==='Essay') stats.Essay.count++;
+                else if(q.type==='Matching'){
+                    let c=0; if(ans) Object.entries(ans).forEach(([l,r])=>{ const p=q.pairs.find(x=>x.left===l); if(p&&p.right===r) c++; });
+                    if(c>0) sc+=(c/q.pairs.length)*pts;
+                    if(c===q.pairs.length) stats.Matching.correct++; else stats.Matching.wrong++;
+                } else {
+                    if(ans===q.key){ sc+=pts; if(q.type==='PG') stats.PG.correct++; else stats.TrueFalse.correct++; }
+                    else { if(q.type==='PG') stats.PG.wrong++; else stats.TrueFalse.wrong++; }
+                }
+            });
+            // Calc Duration
+            const endTime = new Date();
+            const durationMs = endTime - state.startTime;
+            const mins = Math.floor(durationMs / 60000);
+            const secs = Math.floor((durationMs % 60000) / 1000);
+            const durationStr = `${mins}m ${secs}s`;
+
+            await addDoc(collection(db,"results"),{ name:state.user.name,class:state.user.class,subject:state.examData.subject,score:Math.round((sc/tot)*100),stats,answers:state.answers,questions:state.examData.questions,cheatCount:state.cheatCount||0,duration:durationStr,timestamp:serverTimestamp() });
+            Swal.fire('Sukses','Nilai Tersimpan','success').then(()=>location.reload());
+        };
+        window.loginAdmin = async ()=>{ if($('a-u').value==='admin'&&$('a-p').value==='12345#'){ await signInAnonymously(auth); state.user={role:'admin'}; renderAdminDashboard(); } else Swal.fire('Error','Login Gagal','error'); };
+        
+        window.loadResults = async (c)=>{ 
+            c.innerHTML='Loading...'; 
+            const s=await getDocs(query(collection(db,"results"))); 
+            window.allResData=s.docs.map(d=>({id:d.id,...d.data()})); 
+            c.innerHTML=`<div class="bg-white p-6 rounded shadow h-full flex flex-col"><div class="flex justify-between mb-4"><h2 class="font-bold">Hasil</h2><select id="res-filter" onchange="window.filterRes()" class="border p-2 rounded"><option value="ALL">Semua</option>${generateClassOptions()}</select></div><div class="flex-1 overflow-auto"><table class="w-full text-left"><thead class="bg-gray-100"><tr><th class="p-3">Nama</th><th class="p-3">Kls</th><th class="p-3">Mapel</th><th class="p-3">Nilai</th><th class="p-3">Waktu</th><th class="p-3">Aksi</th></tr></thead><tbody id="res-tbody"></tbody></table></div></div>`; 
+            window.filterRes(); 
+        };
+
+        window.filterRes = ()=>{ 
+            const f=$('res-filter').value; 
+            const d=window.allResData.filter(r=>f==='ALL'||r.class===f); 
+            $('res-tbody').innerHTML=d.map(r=>`<tr><td class="p-3">${r.name}</td><td class="p-3">${r.class}</td><td class="p-3">${r.subject||'-'}</td><td class="p-3 font-bold">${r.score}</td><td class="p-3 text-xs text-gray-500">${r.duration||'-'}</td><td class="p-3"><button onclick="window.showDetail('${r.id}')" class="text-blue-500 mr-2"><i class="fas fa-eye"></i></button><button onclick="window.delRes('${r.id}')" class="text-red-500"><i class="fas fa-trash"></i></button></td></tr>`).join(''); 
+        };
+        
+        // --- MODIFIED: DETAIL POPUP (STATISTIK MODERN 20/30) ---
+        window.showDetail = (id) => {
+            const r = window.allResData.find(x => x.id === id);
+            if (!r || !r.questions) return Swal.fire('Info', 'Detail soal tidak tersedia untuk data lama.', 'info');
+            const s = r.stats;
+            
+            // Hitung Benar/Total
+            const pgCorrect = s.PG?.correct || 0;
+            const pgTotal = (s.PG?.correct || 0) + (s.PG?.wrong || 0);
+            
+            const tfCorrect = s.TrueFalse?.correct || 0;
+            const tfTotal = (s.TrueFalse?.correct || 0) + (s.TrueFalse?.wrong || 0);
+            
+            let matchPairsCorrect = 0;
+            let matchPairsTotal = 0;
+            
+            // Hitung ulang pair detail dari data
+            r.questions.forEach((q, idx) => {
+                if(q.type === 'Matching') {
+                    matchPairsTotal += q.pairs.length;
+                    const ans = r.answers ? r.answers[idx] : null;
+                    if(ans) {
+                        Object.entries(ans).forEach(([l, right]) => {
+                            const p = q.pairs.find(x => x.left === l);
+                            if(p && p.right === right) matchPairsCorrect++;
+                        });
+                    }
+                }
+            });
+
+            // Essay List
+            let essayHtml = '';
+            if (r.questions && r.answers) {
+                essayHtml = r.questions.map((q, idx) => {
+                    if (q.type === 'Essay') {
+                        const ans = r.answers[idx] || '<i>Tidak dijawab</i>';
+                        return `<div class="bg-gray-50 p-4 rounded border mb-3"><div class="font-bold text-xs text-blue-600 mb-2">Soal No. ${idx + 1} (Essay)</div><div class="text-sm font-medium text-gray-800 mb-2">${q.text}</div><div class="text-xs font-bold text-gray-500 mb-1">Jawaban Siswa:</div><div class="bg-white p-3 border rounded text-sm text-gray-700 whitespace-pre-wrap shadow-sm">${ans}</div></div>`;
+                    }
+                    return '';
+                }).join('');
+                if (!essayHtml.trim()) essayHtml = '<div class="text-center text-gray-400 text-sm py-4">Tidak ada soal essay.</div>';
+            }
+
+            // Modern Dashboard Stats HTML (Simplified 20/30 format)
+            const statsHtml = `
+            <div class="grid grid-cols-1 gap-4 mb-4">
+                <!-- PG Card -->
+                <div class="bg-white p-4 rounded-xl border border-blue-100 flex items-center justify-between shadow-sm">
+                    <div class="flex items-center gap-3">
+                        <div class="bg-blue-100 text-blue-600 w-10 h-10 rounded-full flex items-center justify-center"><i class="fas fa-list-ul"></i></div>
+                        <div>
+                            <div class="text-xs font-bold text-gray-400 uppercase">Pilihan Ganda</div>
+                            <div class="text-sm font-bold text-gray-700">Benar ${pgCorrect} / ${pgTotal} Soal</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TF Card -->
+                <div class="bg-white p-4 rounded-xl border border-green-100 flex items-center justify-between shadow-sm">
+                    <div class="flex items-center gap-3">
+                        <div class="bg-green-100 text-green-600 w-10 h-10 rounded-full flex items-center justify-center"><i class="fas fa-check-square"></i></div>
+                        <div>
+                            <div class="text-xs font-bold text-gray-400 uppercase">Benar/Salah</div>
+                            <div class="text-sm font-bold text-gray-700">Benar ${tfCorrect} / ${tfTotal} Soal</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Matching Card -->
+                <div class="bg-white p-4 rounded-xl border border-purple-100 flex items-center justify-between shadow-sm">
+                    <div class="flex items-center gap-3">
+                        <div class="bg-purple-100 text-purple-600 w-10 h-10 rounded-full flex items-center justify-center"><i class="fas fa-random"></i></div>
+                        <div>
+                            <div class="text-xs font-bold text-gray-400 uppercase">Matching (Pasangan)</div>
+                            <div class="text-sm font-bold text-gray-700">Benar ${matchPairsCorrect} / ${matchPairsTotal} Pasangan</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            `;
+
+            // Tabs HTML
+            const tabs = `
+                <div class="flex gap-2 mb-4 border-b">
+                    <button onclick="window.showTab('stats')" class="px-4 py-2 text-sm font-bold text-blue-600 border-b-2 border-blue-600" id="tab-btn-stats">Ringkasan</button>
+                    <button onclick="window.showTab('essay')" class="px-4 py-2 text-sm font-bold text-gray-500 hover:text-blue-600" id="tab-btn-essay">Essay (${s.Essay?.count||0})</button>
+                    <button onclick="window.showTab('cheat')" class="px-4 py-2 text-sm font-bold text-red-500 hover:text-red-700" id="tab-btn-cheat">Keamanan</button>
+                </div>
+            `;
+
+            Swal.fire({
+                title: `<div class="text-left pb-2 border-b"><div class="text-lg font-bold">${r.name}</div><div class="text-xs font-normal text-gray-500">${r.class} &bull; ${r.subject || '-'}</div></div>`,
+                html: `
+                <div class="text-left" style="height:500px;overflow-y:auto">
+                    ${r.cheatCount > 0 ? `<div class="bg-red-50 text-red-600 px-4 py-2 rounded mb-4 text-sm font-bold flex items-center gap-2"><i class="fas fa-exclamation-triangle"></i> Terdeteksi ${r.cheatCount}x Kecurangan</div>` : ''}
+                    ${tabs}
+                    <div id="tab-content-stats">
+                        <div class="text-center py-8 bg-gray-900 rounded-xl mb-6 text-white shadow-lg relative overflow-hidden">
+                            <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-400 to-purple-500"></div>
+                            <span class="text-xs font-bold uppercase tracking-[0.2em] opacity-75">NILAI AKHIR</span>
+                            <div class="text-7xl font-black mt-2 tracking-tighter">${r.score}</div>
+                        </div>
+                        ${statsHtml}
+                    </div>
+                    <div id="tab-content-essay" class="hidden">${essayHtml}</div>
+                    <div id="tab-content-cheat" class="hidden">
+                         <div class="bg-red-50 border-l-4 border-red-500 p-6 rounded mb-4">
+                            <h3 class="font-bold text-red-800 text-lg mb-2"><i class="fas fa-shield-alt"></i> Log Keamanan</h3>
+                            <p class="text-sm text-red-700 mb-4">Sistem mencatat setiap kali siswa meninggalkan halaman ujian (minimize browser, pindah tab, atau buka aplikasi lain).</p>
+                            <div class="flex items-center justify-between bg-white p-4 rounded border border-red-100">
+                                <span class="font-bold text-gray-600">Total Pelanggaran</span>
+                                <span class="text-3xl font-black text-red-600">${r.cheatCount || 0}</span>
+                            </div>
+                         </div>
+                    </div>
+                </div>`,
+                width: '650px',
+                showConfirmButton: true,
+                confirmButtonText: 'Tutup',
+                confirmButtonColor: '#1e293b'
+            });
+        };
+
+        window.showTab = (name) => {
+            const tabs = ['stats', 'essay', 'cheat'];
+            tabs.forEach(t => {
+                const el = document.getElementById('tab-content-' + t);
+                if (el) el.classList.add('hidden');
+                const btn = document.getElementById('tab-btn-' + t);
+                if (btn) {
+                    btn.classList.remove('text-blue-600', 'border-b-2', 'border-blue-600');
+                    btn.classList.add('text-gray-500');
+                }
+            });
+            const target = document.getElementById('tab-content-' + name);
+            if (target) target.classList.remove('hidden');
+            const activeBtn = document.getElementById('tab-btn-' + name);
+            if(activeBtn) {
+                activeBtn.classList.remove('text-gray-500');
+                activeBtn.classList.add('text-blue-600', 'border-b-2', 'border-blue-600');
+            }
+        };
+
+        window.delRes = async (id) => { if((await Swal.fire({title:'Hapus?',icon:'warning',showCancelButton:true})).isConfirmed){ await deleteDoc(doc(db,"results",id)); window.loadAdminPage('results'); }};
+        window.previewExam = () => { if(state.editorQuestions.length){ state.examData={subject:$('ed-subject').value,questions:JSON.parse(JSON.stringify(state.editorQuestions)),level:$('ed-level').value,timeLimit:$('ed-time').value}; state.isPreview=true; state.user={name:"PREVIEW",class:$('ed-level').value}; state.currentQuestionIndex=0; state.answers={}; renderExamPage(); }};
+        window.closePreview = () => { state.isPreview=false; renderAdminDashboard('editor',{resume:true}); };
+        window.insTag = (i, t) => insertTag(`qtext-${i}`,i,t,'text'); window.insTagWacana = (i, t) => insertTag(`qwacana-${i}`,i,t,'wacana');
+        function insertTag(id,i,t,f){ const el=$(id), s=el.selectionStart, e=el.selectionEnd, v=el.value; state.editorQuestions[i][f]=v.substring(0,s)+`<${t}>`+v.substring(s,e)+`</${t}>`+v.substring(e); el.value=state.editorQuestions[i][f]; }
+        window.handleImageUpload = async (inpt,i) => { const fs=Array.from(inpt.files); if(fs.length+(state.editorQuestions[i].images?.length||0)>3) return Swal.fire('Max 3','','error'); const b=await Promise.all(fs.map(f=>fileToBase64(f))); if(!state.editorQuestions[i].images) state.editorQuestions[i].images=[]; state.editorQuestions[i].images.push(...b); renderQList(); };
+        window.delImg = (qi,ii) => { state.editorQuestions[qi].images.splice(ii,1); renderQList(); };
+        window.addQ = (t) => { state.editorQuestions.push({type:t,text:'',wacana:'',points:10,images:[],options:t==='PG'?['','','','','']:[],pairs:t==='Matching'?[{left:'',right:''}]:[],key:t==='TrueFalse'?'True':''}); renderQList(); };
+        window.delQ = (i) => { state.editorQuestions.splice(i,1); renderQList(); };
+        window.updQ = (i,k,v) => state.editorQuestions[i][k]=v; window.updOpt = (i,k,v) => state.editorQuestions[i].options[k]=v;
+        window.addOpt = (i) => { state.editorQuestions[i].options.push(''); renderQList(); }; window.delOpt = (i,k) => { state.editorQuestions[i].options.splice(k,1); renderQList(); };
+        window.setKey = (i,v) => state.editorQuestions[i].key=v;
+        window.addPair = (i) => { state.editorQuestions[i].pairs.push({left:'',right:''}); renderQList(); }; window.delPair = (i,k) => { state.editorQuestions[i].pairs.splice(k,1); renderQList(); }; window.updPair = (i,k,s,v) => state.editorQuestions[i].pairs[k][s]=v;
+        window.clearAllQ = async () => { if((await Swal.fire({title:'Hapus Semua?',icon:'warning',showCancelButton:true})).isConfirmed){ state.editorQuestions=[]; renderQList(); }};
+        window.saveToDB = async () => { const s=$('ed-subject').value,l=$('ed-level').value,t=$('ed-time').value; if(!s) return Swal.fire('Isi Mapel','','warning'); Swal.fire({title:'Saving...',didOpen:()=>Swal.showLoading()}); const d={subject:s,level:l,timeLimit:t,questions:state.editorQuestions,isActive:true,createdAt:serverTimestamp()}; try{ if(state.currentExamId) await updateDoc(doc(db,"exams",state.currentExamId),d); else await addDoc(collection(db,"exams"),d); Swal.fire('Sukses','','success').then(()=>window.loadAdminPage('list')); }catch(e){ Swal.fire('Err',e.message,'error'); }};
+        window.toggleExamStatus = async (id,s) => { await updateDoc(doc(db,"exams",id),{isActive:!s}); window.loadAdminPage('list'); };
+        window.deleteExam = async (id) => { if((await Swal.fire({title:'Delete?',icon:'warning',showCancelButton:true})).isConfirmed){ await deleteDoc(doc(db,"exams",id)); window.loadAdminPage('list'); }};
+        window.editExam = (d) => window.loadAdminPage('editor',d);
+        window.openAI_File = () => $('ai-file-input').click();
+        window.handleAIFile = async (i) => { const f=i.files[0]; try{ const t=f.type==="application/pdf"?await readPdfText(f):await readDocxHtml(f); window.confirmAI(t,"5"); }catch(e){ Swal.fire('Err',e.message,'error'); }};
+        window.openAI_Text = async () => { const {value:t}=await Swal.fire({input:'textarea',title:'Paste Materi'}); if(t) window.confirmAI(t,"5"); };
+        window.confirmAI = (t,c) => { Swal.fire({title:'Generate',html:`<input id="aic" type="number" value="${c}" class="swal2-input">`,preConfirm:()=>generateQuestionsAI(t,$('aic').value,$('ed-level').value)}).then(r=>{ if(r.isConfirmed){ state.editorQuestions=[...state.editorQuestions,...r.value]; renderQList(); Swal.fire('Sukses',r.value.length+' added','success'); }}); };
+
+        renderLogin();
+    </script>
+</body>
+</html>
