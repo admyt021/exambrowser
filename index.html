@@ -22,7 +22,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 
     <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
 
     <style>
         body { font-family: 'Inter', sans-serif; }
@@ -82,6 +82,20 @@
         /* Editor Mobile Tabs */
         .editor-tab-btn { border-bottom: 3px solid transparent; color: #64748b; transition: all 0.2s; }
         .editor-tab-btn.active { border-color: #2563eb; color: #2563eb; background-color: #eff6ff; }
+
+        /* Modern Input & Select */
+        .modern-input-group { position: relative; margin-bottom: 1rem; }
+        .modern-input-icon { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: #9ca3af; }
+        .modern-input { width: 100%; padding: 0.75rem 1rem 0.75rem 3rem; border: 2px solid #e5e7eb; border-radius: 12px; transition: all 0.3s; background: #f9fafb; font-size: 0.95rem; }
+        .modern-input:focus { border-color: #3b82f6; background: white; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1); outline: none; }
+        
+        /* Custom Select Arrow */
+        .modern-select-wrapper { position: relative; }
+        .modern-select-wrapper::after { content: '\f107'; font-family: 'Font Awesome 5 Free'; font-weight: 900; position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); color: #6b7280; pointer-events: none; }
+        .modern-select { appearance: none; -webkit-appearance: none; cursor: pointer; }
+
+        /* Token Monitor Circular Progress */
+        .progress-ring__circle { transition: stroke-dashoffset 0.35s; transform: rotate(-90deg); transform-origin: 50% 50%; }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 h-screen overflow-hidden">
@@ -233,14 +247,33 @@
                 if(s.exists()) {
                     const d = s.data();
                     const tEl = $('adm-token');
-                    if(tEl) tEl.innerText = d.code;
+                    if(tEl) {
+                        tEl.innerHTML = d.code.split('').map(c => `<span class="inline-block bg-gray-100 rounded-lg px-2 py-1 mx-1 border border-gray-300 shadow-sm">${c}</span>`).join('');
+                    }
+                    
+                    // Progress Ring Logic
+                    const circle = document.querySelector('.progress-ring__circle');
+                    const radius = circle ? circle.r.baseVal.value : 0;
+                    const circumference = radius * 2 * Math.PI;
+                    if(circle) {
+                        circle.style.strokeDasharray = `${circumference} ${circumference}`;
+                        circle.style.strokeDashoffset = circumference;
+                    }
+
                     if(state.countdownInterval) clearInterval(state.countdownInterval);
-                    let timeLeft = 300; 
+                    let timeLeft = 300; // 5 minutes
+                    const totalTime = 300;
+                    
                     state.countdownInterval = setInterval(() => {
+                        timeLeft--;
+                        const offset = circumference - (timeLeft / totalTime) * circumference;
+                        if(circle) circle.style.strokeDashoffset = offset;
+                        
                         let m=Math.floor(timeLeft/60), s=timeLeft%60;
                         const cEl = $('token-countdown');
                         if(cEl) cEl.innerText = `${m}:${s<10?'0'+s:s}`;
-                        if(--timeLeft < 0) timeLeft = 300;
+                        
+                        if(timeLeft <= 0) timeLeft = 300;
                     }, 1000);
                 }
             });
@@ -266,44 +299,73 @@
         function renderLogin() {
             $('app').innerHTML = `
                 <div class="flex h-screen bg-slate-900 justify-center items-center p-4">
-                    <div class="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden relative z-10">
+                    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden relative z-10">
                         <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-600"></div>
                         
-                        <div class="pt-8 pb-2 text-center">
-                            <div class="inline-flex items-center justify-center w-20 h-20 bg-blue-100 rounded-full mb-4 shadow-lg">
-                                <i class="fas fa-shield-alt text-4xl text-blue-600"></i>
+                        <!-- HEADER DENGAN ICON DI ATAS -->
+                        <div class="pt-10 pb-4 text-center">
+                            <div class="inline-flex items-center justify-center w-20 h-20 bg-blue-50 rounded-full mb-4 shadow-sm border border-blue-100">
+                                <i class="fas fa-graduation-cap text-4xl text-blue-600"></i>
                             </div>
-                            <h2 class="text-2xl font-bold text-gray-800">CBT ExamBrowser</h2>
-                            <p class="text-sm text-gray-500">Platform Ujian Online Aman</p>
+                            <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">CBT ExamBrowser</h2>
+                            <p class="text-sm text-gray-500 font-medium">Platform Ujian Online Terintegrasi</p>
                         </div>
 
-                        <div class="flex border-b mt-4">
-                            <button id="tab-s" class="flex-1 py-4 font-bold bg-blue-600 text-white transition"><i class="fas fa-graduation-cap mr-2"></i> SISWA</button>
-                            <button id="tab-a" class="flex-1 py-4 font-bold bg-gray-100 text-gray-500 hover:bg-gray-200 transition"><i class="fas fa-user-shield mr-2"></i> ADMIN</button>
+                        <!-- TABS -->
+                        <div class="flex border-b border-gray-100 px-6">
+                            <button id="tab-s" class="flex-1 py-3 font-bold text-sm text-blue-600 border-b-2 border-blue-600 transition-colors">SISWA</button>
+                            <button id="tab-a" class="flex-1 py-3 font-bold text-sm text-gray-400 hover:text-gray-600 transition-colors">ADMIN</button>
                         </div>
                         
+                        <!-- PANEL SISWA -->
                         <div id="p-s" class="p-8">
-                            <div class="space-y-4">
-                                <input id="s-name" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Nama Lengkap Siswa">
-                                <select id="s-class" class="w-full px-4 py-3 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none">
-                                    <option value="">-- Pilih Kelas --</option>
-                                    ${generateClassOptions()}
-                                </select>
-                                <button onclick="window.loginSiswa()" class="w-full bg-blue-600 text-white py-3 rounded-lg font-bold shadow hover:bg-blue-700 transition transform active:scale-95">MASUK UJIAN</button>
+                            <div class="space-y-5">
+                                <div class="modern-input-group">
+                                    <i class="fas fa-user modern-input-icon"></i>
+                                    <input id="s-name" class="modern-input" placeholder="Nama Lengkap Anda">
+                                </div>
+                                <div class="modern-input-group modern-select-wrapper">
+                                    <i class="fas fa-layer-group modern-input-icon"></i>
+                                    <select id="s-class" class="modern-input modern-select">
+                                        <option value="">-- Pilih Kelas --</option>
+                                        ${generateClassOptions()}
+                                    </select>
+                                </div>
+                                <button onclick="window.loginSiswa()" class="w-full bg-blue-600 text-white py-3.5 rounded-xl font-bold shadow-lg hover:bg-blue-700 hover:shadow-blue-500/30 transition-all transform active:scale-95 flex items-center justify-center gap-2">
+                                    <span>MASUK UJIAN</span> <i class="fas fa-arrow-right"></i>
+                                </button>
                             </div>
                         </div>
+
+                        <!-- PANEL ADMIN -->
                         <div id="p-a" class="p-8 hidden">
-                            <div class="space-y-4">
-                                <input id="a-u" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-gray-500 outline-none" placeholder="Username">
-                                <input type="password" id="a-p" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-gray-500 outline-none" placeholder="Password">
-                                <button onclick="window.loginAdmin()" class="w-full bg-gray-800 text-white py-3 rounded-lg font-bold shadow hover:bg-black transition transform active:scale-95">LOGIN ADMIN</button>
+                            <div class="space-y-5">
+                                <div class="modern-input-group">
+                                    <i class="fas fa-user-shield modern-input-icon"></i>
+                                    <input id="a-u" class="modern-input" placeholder="Username Admin">
+                                </div>
+                                <div class="modern-input-group">
+                                    <i class="fas fa-lock modern-input-icon"></i>
+                                    <input type="password" id="a-p" class="modern-input" placeholder="Password">
+                                </div>
+                                <button onclick="window.loginAdmin()" class="w-full bg-slate-800 text-white py-3.5 rounded-xl font-bold shadow-lg hover:bg-slate-900 hover:shadow-slate-500/30 transition-all transform active:scale-95">
+                                    LOGIN DASHBOARD
+                                </button>
                             </div>
                         </div>
                     </div>
                 </div>
             `;
-            $('tab-s').onclick=()=>{ $('p-s').classList.remove('hidden');$('p-a').classList.add('hidden');$('tab-s').className="flex-1 py-4 font-bold bg-blue-600 text-white";$('tab-a').className="flex-1 py-4 font-bold bg-gray-100 text-gray-500"; };
-            $('tab-a').onclick=()=>{ $('p-s').classList.add('hidden');$('p-a').classList.remove('hidden');$('tab-s').className="flex-1 py-4 font-bold bg-gray-100 text-gray-500";$('tab-a').className="flex-1 py-4 font-bold bg-gray-800 text-white"; };
+            $('tab-s').onclick=()=>{ 
+                $('p-s').classList.remove('hidden'); $('p-a').classList.add('hidden');
+                $('tab-s').className="flex-1 py-3 font-bold text-sm text-blue-600 border-b-2 border-blue-600 transition-colors";
+                $('tab-a').className="flex-1 py-3 font-bold text-sm text-gray-400 hover:text-gray-600 transition-colors";
+            };
+            $('tab-a').onclick=()=>{ 
+                $('p-s').classList.add('hidden'); $('p-a').classList.remove('hidden');
+                $('tab-s').className="flex-1 py-3 font-bold text-sm text-gray-400 hover:text-gray-600 transition-colors";
+                $('tab-a').className="flex-1 py-3 font-bold text-sm text-blue-600 border-b-2 border-blue-600 transition-colors";
+            };
         }
 
         function renderTokenPage() {
@@ -482,13 +544,7 @@
                                 </div>
                                 <input type="file" id="ai-file-input" class="hidden" accept=".pdf,.docx" onchange="window.handleAIFile(this)">
                             </div>
-                            
-                            <!-- MOBILE TAB NAV -->
-                            <div class="lg:hidden flex border-b mb-4 bg-white sticky top-0 z-10">
-                                <button onclick="window.setMobileEditorTab('settings')" class="flex-1 p-3 font-bold text-sm border-b-2 border-blue-600 text-blue-600 editor-tab-btn active" id="mob-tab-settings">Pengaturan</button>
-                                <button onclick="window.setMobileEditorTab('list')" class="flex-1 p-3 font-bold text-sm text-gray-500 editor-tab-btn" id="mob-tab-list">Daftar Soal</button>
-                            </div>
-
+                            <div class="lg:hidden flex border-b mb-4 bg-white sticky top-0 z-10"><button onclick="window.setMobileEditorTab('settings')" class="flex-1 p-3 font-bold text-sm border-b-2 border-blue-600 text-blue-600 editor-tab-btn active" id="mob-tab-settings">Pengaturan</button><button onclick="window.setMobileEditorTab('list')" class="flex-1 p-3 font-bold text-sm text-gray-500 editor-tab-btn" id="mob-tab-list">Daftar Soal</button></div>
                             <button onclick="window.previewExam()" class="w-full mb-3 bg-gray-800 text-white p-3 rounded font-bold hover:bg-gray-900 shadow">PREVIEW</button>
                             <button onclick="window.saveToDB()" class="w-full bg-blue-600 text-white p-3 rounded font-bold hover:bg-blue-700 shadow-lg">SIMPAN UJIAN</button>
                         </div>
@@ -657,31 +713,19 @@
         // Shortened logic helpers remain same as before...
         window.handlePasteOptions = (i,t)=>{ const l=t.split(/\n/).map(x=>x.trim()).filter(x=>x); if(l.length){ while(state.editorQuestions[i].options.length<l.length&&state.editorQuestions[i].options.length<5) state.editorQuestions[i].options.push(''); l.slice(0,5).forEach((x,k)=>state.editorQuestions[i].options[k]=x.replace(/^[A-Ea-e1-5][\.\)]\s*/,'')); renderQList(); }};
         window.handleEssayInput = (v)=>{ state.answers[state.currentQuestionIndex]=v; window.updateNavGrid(); };
-        
-        // --- UPDATED: LOGIN POPUP MODERN ---
         window.loginSiswa = async ()=>{ 
             if(!$('s-name').value || !$('s-class').value) {
                 return Swal.fire({
-                    html: `
-                        <div class="text-center">
-                            <div class="mb-4 text-yellow-500 animate-bounce">
-                                <i class="fas fa-exclamation-circle text-6xl"></i>
-                            </div>
-                            <h3 class="text-xl font-bold text-gray-800 mb-2">Data Belum Lengkap</h3>
-                            <p class="text-gray-500 text-sm">Mohon isi <b>Nama Lengkap</b> dan <b>Kelas</b> sebelum melanjutkan.</p>
-                        </div>
-                    `,
-                    showConfirmButton: true,
-                    confirmButtonText: 'OK, Saya Mengerti',
-                    confirmButtonColor: '#f59e0b',
-                    customClass: { popup: 'rounded-2xl p-6 shadow-2xl' }
+                    icon: 'error',
+                    title: 'Oops...',
+                    text: 'Nama dan Kelas wajib diisi!',
+                    backdrop: `rgba(0,0,123,0.4)`
                 });
             }
             await signInAnonymously(auth); 
             state.user={name:$('s-name').value,class:$('s-class').value}; 
             renderTokenPage(); 
         };
-
         window.checkToken = async ()=>{ const t=await getDoc(doc(db,"system","token")); if($('token-in').value.toUpperCase()===(t.exists()?t.data().code:"ABCDE")){ const q=query(collection(db,"exams"),where("level","==",CLASS_MAPPING[state.user.class]),where("isActive","==",true)); const s=await getDocs(q); if(s.empty) return Swal.fire('Info','Tidak ada ujian','info'); state.examData=s.docs[0].data(); state.isPreview=false; state.cheatCount=0; state.answers={}; state.view = 'exam'; state.startTime = new Date(); startTimer(state.examData.timeLimit*60); renderExamPage(); } else Swal.fire('Error','Token Salah','error'); };
         window.toggleAdminNav = ()=>{ $('admin-drawer').classList.toggle('open'); $('drawer-overlay').classList.toggle('show'); };
         window.toggleStudentNav = ()=>{ $('student-drawer').classList.toggle('open'); $('drawer-overlay').classList.toggle('show'); };
@@ -789,6 +833,7 @@
                             <div class="text-sm font-bold text-gray-700">Benar ${pgCorrect} / ${pgTotal} Soal</div>
                         </div>
                     </div>
+                    <div class="text-xl font-black text-blue-600">${Math.round((pgCorrect/pgTotal)*100) || 0}%</div>
                 </div>
 
                 <!-- TF Card -->
@@ -800,6 +845,7 @@
                             <div class="text-sm font-bold text-gray-700">Benar ${tfCorrect} / ${tfTotal} Soal</div>
                         </div>
                     </div>
+                    <div class="text-xl font-black text-green-600">${Math.round((tfCorrect/tfTotal)*100) || 0}%</div>
                 </div>
 
                 <!-- Matching Card -->
@@ -811,6 +857,7 @@
                             <div class="text-sm font-bold text-gray-700">Benar ${matchPairsCorrect} / ${matchPairsTotal} Pasangan</div>
                         </div>
                     </div>
+                    <div class="text-xl font-black text-purple-600">${Math.round((matchPairsCorrect/matchPairsTotal)*100) || 0}%</div>
                 </div>
             </div>
             `;
