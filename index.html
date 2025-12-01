@@ -79,10 +79,6 @@
         svg line { stroke: #2563eb; stroke-width: 2; stroke-linecap: round; pointer-events: auto; cursor: pointer; }
         svg line:hover { stroke: #ef4444; stroke-width: 4; }
         
-        /* Editor Mobile Tabs */
-        .editor-tab-btn { border-bottom: 3px solid transparent; color: #64748b; transition: all 0.2s; }
-        .editor-tab-btn.active { border-color: #2563eb; color: #2563eb; background-color: #eff6ff; }
-
         /* Modern Input & Select */
         .modern-input-group { position: relative; margin-bottom: 1rem; }
         .modern-input-icon { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: #9ca3af; }
@@ -96,6 +92,21 @@
 
         /* Token Monitor Circular Progress */
         .progress-ring__circle { transition: stroke-dashoffset 1s linear; transform: rotate(-90deg); transform-origin: 50% 50%; }
+        
+        /* Mobile Editor Sticky Footer */
+        .mobile-editor-footer {
+            position: fixed; bottom: 0; left: 0; right: 0; 
+            background: white; padding: 12px 15px; 
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.1); 
+            z-index: 50; display: none;
+            gap: 10px; border-top: 1px solid #e2e8f0;
+        }
+        @media (max-width: 1024px) {
+            .mobile-editor-footer { display: flex; }
+            .desktop-editor-actions { display: none; }
+            #editor-content-wrapper { padding-bottom: 80px; } /* Spacing for footer */
+            /* Hide desktop specific items on mobile if needed */
+        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 h-screen overflow-hidden">
@@ -142,6 +153,7 @@
             token: "",
             timerInterval: null,
             countdownInterval: null,
+            tokenCheckInterval: null, 
             clockInterval: null,
             currentQuestionIndex: 0,
             editorQuestions: [],
@@ -206,6 +218,17 @@
             return Object.keys(groups).map(lvl => `<optgroup label="${lvl}">${groups[lvl].map(c => `<option value="${c}">${c}</option>`).join('')}</optgroup>`).join('');
         };
 
+        // Fungsi sanitasi untuk mencegah error saat render input value
+        const escapeHtml = (text) => {
+            if (!text) return "";
+            return text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        };
+
         async function readPdfText(file) {
             const arrayBuffer = await file.arrayBuffer();
             const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -253,39 +276,64 @@
                     
                     // Update Circular Timer
                     const circle = document.querySelector('.progress-ring__circle');
-                    const radius = circle ? circle.r.baseVal.value : 0;
-                    const circumference = radius * 2 * Math.PI;
-                    
+                    let circumference = 0;
                     if(circle) {
+                         const radius = circle.r.baseVal.value;
+                         circumference = radius * 2 * Math.PI;
                          circle.style.strokeDasharray = `${circumference} ${circumference}`;
                     }
 
                     if(state.countdownInterval) clearInterval(state.countdownInterval);
-                    let timeLeft = 300; 
-                    const totalTime = 300;
-
-                    state.countdownInterval = setInterval(() => {
-                        timeLeft--;
-                        let m=Math.floor(timeLeft/60), s=timeLeft%60;
-                        const cEl = $('token-countdown');
-                        if(cEl) cEl.innerText = `${m}:${s<10?'0'+s:s}`;
+                    const generatedAt = d.updatedAt ? d.updatedAt.toDate() : new Date();
+                    const TOTAL_TIME = 300; // 5 minutes
+                    
+                    const updateTimer = () => {
+                        const now = new Date();
+                        const elapsedSeconds = Math.floor((now - generatedAt) / 1000);
+                        let timeLeft = TOTAL_TIME - elapsedSeconds;
                         
-                        if(circle) {
-                             const offset = circumference - (timeLeft / totalTime) * circumference;
-                             circle.style.strokeDashoffset = offset;
+                        if (timeLeft < 0) {
+                            timeLeft = 0; 
                         }
 
-                        if(timeLeft <= 0) timeLeft = 300;
-                    }, 1000);
+                        let m = Math.floor(timeLeft / 60);
+                        let s = timeLeft % 60;
+                        
+                        const cEl = $('token-countdown');
+                        if(cEl) cEl.innerText = `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+                        
+                        if(circle) {
+                             const offset = circumference - (timeLeft / TOTAL_TIME) * circumference;
+                             circle.style.strokeDashoffset = offset;
+                        }
+                    };
+                    
+                    updateTimer(); // Jalankan sekali di awal
+                    state.countdownInterval = setInterval(updateTimer, 1000);
                 }
             });
-            setInterval(async () => {
-                if(state.user?.role==='admin') {
-                    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-                    let c = ""; for(let i=0; i<5; i++) c += chars.charAt(Math.floor(Math.random() * chars.length));
-                    await setDoc(doc(db,"system","token"), {code:c, updatedAt:serverTimestamp()});
-                }
-            }, 300000);
+            
+            // Generator Background Check (Hanya Admin yg generate)
+            if(!state.tokenCheckInterval && state.user?.role === 'admin') {
+                state.tokenCheckInterval = setInterval(async () => {
+                    const tSnap = await getDoc(doc(db, "system", "token"));
+                    let shouldUpdate = false;
+                    if(tSnap.exists()) {
+                        const d = tSnap.data();
+                        const genTime = d.updatedAt ? d.updatedAt.toDate() : new Date(0);
+                        const now = new Date();
+                        if ((now - genTime) >= 300000) shouldUpdate = true; // > 5 menit
+                    } else {
+                        shouldUpdate = true;
+                    }
+
+                    if(shouldUpdate) {
+                        const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+                        let c = ""; for(let i=0; i<5; i++) c += chars.charAt(Math.floor(Math.random() * chars.length));
+                        await setDoc(doc(db,"system","token"), {code:c, updatedAt:serverTimestamp()});
+                    }
+                }, 5000); 
+            }
         }
 
         // --- EXAM LIST RENDERER ---
@@ -304,7 +352,6 @@
                     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden relative z-10">
                         <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-600"></div>
                         
-                        <!-- HEADER DENGAN ICON DI ATAS -->
                         <div class="pt-10 pb-4 text-center">
                             <div class="inline-flex items-center justify-center w-20 h-20 bg-blue-50 rounded-full mb-4 shadow-sm border border-blue-100">
                                 <i class="fas fa-graduation-cap text-4xl text-blue-600"></i>
@@ -313,13 +360,11 @@
                             <p class="text-sm text-gray-500 font-medium">Platform Ujian Online Terintegrasi</p>
                         </div>
 
-                        <!-- TABS -->
                         <div class="flex border-b border-gray-100 px-6">
                             <button id="tab-s" class="flex-1 py-3 font-bold text-sm text-blue-600 border-b-2 border-blue-600 transition-colors">SISWA</button>
                             <button id="tab-a" class="flex-1 py-3 font-bold text-sm text-gray-400 hover:text-gray-600 transition-colors">ADMIN</button>
                         </div>
                         
-                        <!-- PANEL SISWA -->
                         <div id="p-s" class="p-8">
                             <div class="space-y-5">
                                 <div class="modern-input-group">
@@ -339,7 +384,6 @@
                             </div>
                         </div>
 
-                        <!-- PANEL ADMIN -->
                         <div id="p-a" class="p-8 hidden">
                             <div class="space-y-5">
                                 <div class="modern-input-group">
@@ -454,7 +498,7 @@
                 }).join('') + `</div>`;
             } else if(q.type === 'Matching') {
                 if(!q.shuffledRight) q.shuffledRight = q.pairs.map((p, i) => ({ text: p.right, id: i })).sort(() => Math.random() - 0.5);
-                content = `<div class="bg-white p-4 rounded border relative select-none" id="match-container-${state.currentQuestionIndex}" style="min-height: 300px;"><svg class="absolute inset-0 w-full h-full pointer-events-none z-10" id="match-svg"></svg><div class="flex justify-between gap-8 relative z-20"><div class="flex-1 space-y-6">${q.pairs.map((p, i) => `<div id="left-${i}" class="match-item left-item bg-gray-50 border p-4 rounded shadow-sm text-sm font-medium relative" onclick="window.handleMatchClick('left', ${i})">${p.left}<div class="match-point"></div></div>`).join('')}</div><div class="flex-1 space-y-6">${q.shuffledRight.map((item, i) => `<div id="right-${item.id}" class="match-item right-item bg-gray-50 border p-4 rounded shadow-sm text-sm relative" onclick="window.handleMatchClick('right', ${item.id})"><div class="match-point"></div>${item.text}</div>`).join('')}</div></div><div class="text-center mt-4 text-xs text-gray-400">Klik titik kiri lalu klik titik kanan.</div></div>`;
+                content = `<div class="bg-white p-4 rounded border relative select-none" id="match-container-${state.currentQuestionIndex}" style="min-height: 300px;"><svg class="absolute inset-0 w-full h-full pointer-events-none z-10" id="match-svg"></svg><div class="flex justify-between gap-8 relative z-20"><div class="flex-1 space-y-6">${q.pairs.map((p, i) => `<div id="left-${i}" class="match-item left-item bg-gray-50 border p-4 rounded shadow-sm text-sm font-medium relative" onclick="window.handleMatchClick('left', ${i})">${p.left}<div class="match-point"></div></div>`).join('')}</div><div class="flex-1 space-y-6">${q.shuffledRight.map((item, i) => `<div id="right-${item.id}" class="match-item right-item bg-gray-50 border p-4 rounded shadow-sm text-sm relative" onclick="window.handleMatchClick('right', ${item.id})"><div class="match-point"></div>${item.text}</div>`).join('')}</div></div><div class="text-center mt-4 text-xs text-gray-400">Klik titik kiri lalu klik titik kanan untuk menghubungkan.</div></div>`;
                 setTimeout(() => window.drawMatchLines(), 100);
                 window.addEventListener('resize', window.drawMatchLines);
             } else if(q.type === 'Essay') {
@@ -547,8 +591,18 @@
                                 <input type="file" id="ai-file-input" class="hidden" accept=".pdf,.docx" onchange="window.handleAIFile(this)">
                             </div>
                             <div class="lg:hidden flex border-b mb-4 bg-white sticky top-0 z-10"><button onclick="window.setMobileEditorTab('settings')" class="flex-1 p-3 font-bold text-sm border-b-2 border-blue-600 text-blue-600 editor-tab-btn active" id="mob-tab-settings">Pengaturan</button><button onclick="window.setMobileEditorTab('list')" class="flex-1 p-3 font-bold text-sm text-gray-500 editor-tab-btn" id="mob-tab-list">Daftar Soal</button></div>
-                            <button onclick="window.previewExam()" class="w-full mb-3 bg-gray-800 text-white p-3 rounded font-bold hover:bg-gray-900 shadow">PREVIEW</button>
-                            <button onclick="window.saveToDB()" class="w-full bg-blue-600 text-white p-3 rounded font-bold hover:bg-blue-700 shadow-lg">SIMPAN UJIAN</button>
+                            
+                            <!-- MOBILE STICKY FOOTER -->
+                            <div class="mobile-editor-footer">
+                                <button onclick="window.previewExam()" class="flex-1 bg-gray-800 text-white p-3 rounded font-bold hover:bg-gray-900 shadow text-sm">PREVIEW</button>
+                                <button onclick="window.saveToDB()" class="flex-1 bg-blue-600 text-white p-3 rounded font-bold hover:bg-blue-700 shadow text-sm">SIMPAN</button>
+                                <button onclick="window.loadAdminPage('list')" class="bg-red-500 text-white p-3 rounded font-bold hover:bg-red-600 shadow text-sm px-4"><i class="fas fa-arrow-left"></i></button>
+                            </div>
+                            
+                            <div class="desktop-editor-actions">
+                                <button onclick="window.previewExam()" class="w-full mb-3 bg-gray-800 text-white p-3 rounded font-bold hover:bg-gray-900 shadow">PREVIEW</button>
+                                <button onclick="window.saveToDB()" class="w-full bg-blue-600 text-white p-3 rounded font-bold hover:bg-blue-700 shadow-lg">SIMPAN UJIAN</button>
+                            </div>
                         </div>
                         <div class="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-full overflow-hidden hidden lg:flex" id="editor-list-panel">
                             <div class="p-4 border-b bg-gray-50 flex justify-between items-center"><span class="font-bold text-gray-700" id="q-total">0 Soal</span><button onclick="window.clearAllQ()" class="text-red-500 text-xs font-bold hover:underline">HAPUS SEMUA</button></div>
@@ -724,6 +778,11 @@
         window.renderQList = () => {
             const listEl = $('q-list');
             if(!listEl) return;
+            
+            // RESTORE SCROLL POS
+            const currentScroll = document.getElementById('editor-list-panel')?.scrollTop || 0;
+            const currentScrollMob = document.getElementById('q-list')?.scrollTop || 0;
+
             listEl.innerHTML = state.editorQuestions.map((q, i) => `
                 <div class="bg-white border border-gray-200 p-6 rounded-lg shadow-sm relative group transition hover:shadow-md">
                     <div class="flex justify-between items-center mb-4 border-b pb-2">
@@ -734,46 +793,39 @@
                         </div>
                         <button onclick="window.delQ(${i})" class="text-red-400 hover:text-red-600 transition p-2"><i class="fas fa-trash-alt"></i> Hapus</button>
                     </div>
-                    <div class="flex gap-2 mb-4"><span class="bg-gray-100 px-2 py-1 rounded text-xs font-bold uppercase border">${q.type}</span><input type="number" placeholder="Poin" class="w-20 text-xs border rounded px-2" value="${q.points||0}" onchange="window.updQ(${i},'points',this.value)"><input type="text" placeholder="Penanda Soal" class="border rounded px-2 text-xs flex-1" value="${q.referenceText||''}" onchange="window.updQ(${i},'referenceText',this.value)"></div>
+                    <div class="flex gap-2 mb-4"><span class="bg-gray-100 px-2 py-1 rounded text-xs font-bold uppercase border">${q.type}</span><input type="number" placeholder="Poin" class="w-20 text-xs border rounded px-2" value="${q.points||0}" onchange="window.updQ(${i},'points',this.value)"><input type="text" placeholder="Penanda Soal" class="border rounded px-2 text-xs flex-1" value="${escapeHtml(q.referenceText||'')}" onchange="window.updQ(${i},'referenceText',this.value)"></div>
                     <div class="mb-4 space-y-3"><div class="border rounded-lg overflow-hidden"><div class="bg-gray-50 p-1 flex gap-1 border-b editor-toolbar"><span class="text-xs font-bold p-2 text-gray-500">WACANA:</span><button onclick="window.insTagWacana(${i},'b')" class="font-bold">B</button><button onclick="window.insTagWacana(${i},'i')" class="italic">I</button><button onclick="window.insTagWacana(${i},'u')" class="underline">U</button></div><textarea id="qwacana-${i}" placeholder="Wacana" class="w-full p-3 bg-white text-sm h-20 outline-none" onchange="window.updQ(${i},'wacana',this.value)">${q.wacana||''}</textarea></div><div class="border rounded-lg overflow-hidden"><div class="bg-gray-50 p-1 flex gap-1 border-b editor-toolbar"><span class="text-xs font-bold p-2 text-gray-500">PERTANYAAN:</span><button onclick="window.insTag(${i},'b')" class="font-bold">B</button><button onclick="window.insTag(${i},'i')" class="italic">I</button><button onclick="window.insTag(${i},'u')" class="underline">U</button><button onclick="window.insTag(${i},'sup')" class="text-xs">x²</button><button onclick="window.insTag(${i},'sub')" class="text-xs">x₂</button></div><textarea id="qtext-${i}" placeholder="Ketik Pertanyaan..." class="w-full p-3 outline-none" rows="3" onchange="window.updQ(${i},'text',this.value)">${q.text||''}</textarea></div><div class="flex items-center gap-2"><label class="cursor-pointer bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded text-xs font-bold text-gray-600 flex items-center gap-1"><i class="fas fa-image"></i> Upload Gambar (Max 3)<input type="file" class="hidden" multiple accept="image/*" onchange="window.handleImageUpload(this, ${i})"></label><div id="img-preview-${i}" class="flex gap-2">${(q.images||[]).map((img,idx)=>`<div class="relative"><img src="${img}" class="h-10 w-10 object-cover rounded border"><button onclick="window.delImg(${i},${idx})" class="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]">&times;</button></div>`).join('')}</div></div></div>${renderOptions(q,i)}
                 </div>`).join('');
+            
             $('q-total').innerText = `${state.editorQuestions.length} Soal`;
+
+            // RESTORE SCROLL
+            if(document.getElementById('editor-list-panel')) document.getElementById('editor-list-panel').scrollTop = currentScroll;
+            if(document.getElementById('q-list')) document.getElementById('q-list').scrollTop = currentScrollMob;
         };
 
         function renderOptions(q, i) {
-            if (q.type === 'PG') return `<div class="space-y-2">${q.options.map((o,k)=>`<div class="flex gap-2 items-center"><input type="radio" name="k-${i}" ${q.key===o?'checked':''} onclick="window.setKey(${i},'${o.replace(/'/g,"\\'")}')"><span class="font-bold text-gray-400 w-6 h-6 flex items-center justify-center border rounded bg-gray-50 text-xs">${String.fromCharCode(65+k)}</span><input class="flex-1 border p-2 rounded text-sm" value="${o}" onchange="window.updOpt(${i},${k},this.value)" placeholder="Opsi"><button onclick="window.delOpt(${i},${k})" class="text-red-300 hover:text-red-500 px-1">x</button></div>`).join('')}<div class="flex gap-2 mt-2 items-center"><button onclick="window.addOpt(${i})" class="text-xs bg-blue-50 text-blue-600 px-3 py-1 rounded font-bold hover:bg-blue-100">+ Tambah Opsi</button><textarea class="flex-1 border border-dashed rounded p-1 text-xs h-8" placeholder="Magic Paste..." oninput="window.handlePasteOptions(${i}, this.value); this.value=''"></textarea></div></div>`;
+            if (q.type === 'PG') return `<div class="space-y-2">${q.options.map((o,k)=>`<div class="flex gap-2 items-center"><input type="radio" name="k-${i}" ${q.key===o?'checked':''} onclick="window.setKey(${i},'${o.replace(/'/g,"\\'")}')"><span class="font-bold text-gray-400 w-6 h-6 flex items-center justify-center border rounded bg-gray-50 text-xs">${String.fromCharCode(65+k)}</span><input class="flex-1 border p-2 rounded text-sm" value="${escapeHtml(o)}" onchange="window.updOpt(${i},${k},this.value)" placeholder="Opsi"><button onclick="window.delOpt(${i},${k})" class="text-red-300 hover:text-red-500 px-1">x</button></div>`).join('')}<div class="flex gap-2 mt-2 items-center"><button onclick="window.addOpt(${i})" class="text-xs bg-blue-50 text-blue-600 px-3 py-1 rounded font-bold hover:bg-blue-100">+ Tambah Opsi</button><textarea class="flex-1 border border-dashed rounded p-1 text-xs h-8" placeholder="Magic Paste..." oninput="window.handlePasteOptions(${i}, this.value); this.value=''"></textarea></div></div>`;
             if (q.type === 'TrueFalse') return `<div class="flex gap-4"><label class="flex gap-2 items-center p-2 border rounded cursor-pointer bg-green-50 hover:bg-green-100"><input type="radio" name="tf-${i}" ${q.key==='True'?'checked':''} onclick="window.setKey(${i},'True')"><span class="font-bold text-green-700">TRUE</span></label><label class="flex gap-2 items-center p-2 border rounded cursor-pointer bg-red-50 hover:bg-red-100"><input type="radio" name="tf-${i}" ${q.key==='False'?'checked':''} onclick="window.setKey(${i},'False')"><span class="font-bold text-red-700">FALSE</span></label></div>`;
-            if (q.type === 'Matching') return `<div class="bg-purple-50 p-4 rounded text-sm border border-purple-200"><div class="font-bold text-purple-800 mb-2">PASANGAN</div>${q.pairs.map((p,k)=>`<div class="flex gap-2 mb-2 items-center"><span class="text-xs font-bold text-gray-400 w-4">${k+1}.</span><input class="flex-1 p-2 border rounded text-sm" placeholder="Kiri" value="${p.left}" onchange="window.updPair(${i},${k},'left',this.value)"><i class="fas fa-arrow-right text-purple-400"></i><input class="flex-1 p-2 border rounded text-sm" placeholder="Kanan" value="${p.right}" onchange="window.updPair(${i},${k},'right',this.value)"><button onclick="window.delPair(${i},${k})" class="text-red-400">x</button></div>`).join('')}<button onclick="window.addPair(${i})" class="mt-2 text-xs bg-purple-600 text-white px-3 py-1 rounded font-bold">+ Tambah Pasangan</button></div>`;
+            if (q.type === 'Matching') return `<div class="bg-purple-50 p-4 rounded text-sm border border-purple-200"><div class="font-bold text-purple-800 mb-2">PASANGAN</div>${q.pairs.map((p,k)=>`<div class="flex gap-2 mb-2 items-center"><span class="text-xs font-bold text-gray-400 w-4">${k+1}.</span><input class="flex-1 p-2 border rounded text-sm" placeholder="Kiri" value="${escapeHtml(p.left)}" onchange="window.updPair(${i},${k},'left',this.value)"><button onclick="window.delPair(${i},${k})" class="text-red-400">x</button><input class="flex-1 p-2 border rounded text-sm" placeholder="Kanan" value="${escapeHtml(p.right)}" onchange="window.updPair(${i},${k},'right',this.value)"></div>`).join('')}<button onclick="window.addPair(${i})" class="mt-2 text-xs bg-purple-600 text-white px-3 py-1 rounded font-bold">+ Tambah Pasangan</button></div>`;
             return '';
         }
         // Shortened logic helpers remain same as before...
         window.handlePasteOptions = (i,t)=>{ const l=t.split(/\n/).map(x=>x.trim()).filter(x=>x); if(l.length){ while(state.editorQuestions[i].options.length<l.length&&state.editorQuestions[i].options.length<5) state.editorQuestions[i].options.push(''); l.slice(0,5).forEach((x,k)=>state.editorQuestions[i].options[k]=x.replace(/^[A-Ea-e1-5][\.\)]\s*/,'')); renderQList(); }};
         window.handleEssayInput = (v)=>{ state.answers[state.currentQuestionIndex]=v; window.updateNavGrid(); };
-        
-        // --- UPDATED: LOGIN POPUP MODERN ---
         window.loginSiswa = async ()=>{ 
             if(!$('s-name').value || !$('s-class').value) {
                 return Swal.fire({
-                    html: `
-                        <div class="text-center">
-                            <div class="mb-4 text-yellow-500 animate-bounce">
-                                <i class="fas fa-exclamation-circle text-6xl"></i>
-                            </div>
-                            <h3 class="text-xl font-bold text-gray-800 mb-2">Data Belum Lengkap</h3>
-                            <p class="text-gray-500 text-sm">Mohon isi <b>Nama Lengkap</b> dan <b>Kelas</b> sebelum melanjutkan.</p>
-                        </div>
-                    `,
-                    showConfirmButton: true,
-                    confirmButtonText: 'OK, Saya Mengerti',
-                    confirmButtonColor: '#f59e0b',
-                    customClass: { popup: 'rounded-2xl p-6 shadow-2xl' }
+                    icon: 'error',
+                    title: 'Oops...',
+                    text: 'Nama dan Kelas wajib diisi!',
+                    backdrop: `rgba(0,0,123,0.4)`
                 });
             }
             await signInAnonymously(auth); 
             state.user={name:$('s-name').value,class:$('s-class').value}; 
             renderTokenPage(); 
         };
-
         window.checkToken = async ()=>{ const t=await getDoc(doc(db,"system","token")); if($('token-in').value.toUpperCase()===(t.exists()?t.data().code:"ABCDE")){ const q=query(collection(db,"exams"),where("level","==",CLASS_MAPPING[state.user.class]),where("isActive","==",true)); const s=await getDocs(q); if(s.empty) return Swal.fire('Info','Tidak ada ujian','info'); state.examData=s.docs[0].data(); state.isPreview=false; state.cheatCount=0; state.answers={}; state.view = 'exam'; state.startTime = new Date(); startTimer(state.examData.timeLimit*60); renderExamPage(); } else Swal.fire('Error','Token Salah','error'); };
         window.toggleAdminNav = ()=>{ $('admin-drawer').classList.toggle('open'); $('drawer-overlay').classList.toggle('show'); };
         window.toggleStudentNav = ()=>{ $('student-drawer').classList.toggle('open'); $('drawer-overlay').classList.toggle('show'); };
